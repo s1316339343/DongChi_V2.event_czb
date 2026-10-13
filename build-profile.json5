@@ -1,0 +1,48 @@
+{
+  "app": {
+    // 签名配置说明：
+    //   signingConfigs 默认留空 —— 仓库中不保存任何口令与证书路径。
+    //   需要在本地产出已签名 HAP 时，二选一：
+    //     1) 在 DevEco Studio 中配置签名（File > Project Structure > Signing Configs），
+    //        IDE 会在本地把该数组补全；
+    //     2) 使用 scripts/build-signed.mjs 从本地私有文件临时注入（推荐，脚本会自动还原）。
+    //   详见 README「4.3 构建签名包」。
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "targetSdkVersion": "6.0.2(22)",
+        "compatibleSdkVersion": "6.0.2(22)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

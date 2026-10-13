@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "懂吃 - 帮你解决每天吃什么"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "懂吃APP"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "懂吃"
+    },
+    {
+      "name": "app_name",
+      "value": "懂吃"
+    }
+  ]
+}

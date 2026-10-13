@@ -1,0 +1,52 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "app_primary",
+      "value": "#FF6B35"
+    },
+    {
+      "name": "app_secondary",
+      "value": "#FF8C5A"
+    },
+    {
+      "name": "app_bg",
+      "value": "#FFF5F0"
+    },
+    {
+      "name": "card_bg",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "text_primary",
+      "value": "#2D2D2D"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#666666"
+    },
+    {
+      "name": "text_light",
+      "value": "#999999"
+    },
+    {
+      "name": "category_home",
+      "value": "#FFE8D0"
+    },
+    {
+      "name": "category_spicy",
+      "value": "#FFD0D0"
+    },
+    {
+      "name": "category_healthy",
+      "value": "#D0FFE0"
+    },
+    {
+      "name": "category_fast",
+      "value": "#D0E8FF"
+    }
+  ]
+}

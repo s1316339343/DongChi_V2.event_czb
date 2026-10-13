@@ -1,0 +1,19 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/StepOne",
+    "pages/StepTwo",
+    "pages/StepThree",
+    "pages/Recommend",
+    "pages/ShoppingList",
+    "pages/Profile",
+    "pages/ProfileDetail",
+    "pages/DecisionRecords",
+    "pages/Favorites",
+    "pages/DishDetail",
+    "pages/FridgePage",
+    "pages/FridgeEditPage",
+    "pages/DietDashboard",
+    "pages/AiSettings"
+  ]
+}
