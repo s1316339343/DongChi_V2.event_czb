@@ -429,15 +429,6 @@ export class DbService {
     };
   }
 
-  /**
-   * 清空所有收藏
-   */
-  static async clearAllFavorites(context: common.Context): Promise<void> {
-    const db = await DbService.ensureDb(context);
-    const pred = new relationalStore.RdbPredicates(TABLE_FAVORITES);
-    await db.delete(pred);
-    console.info('DbService: 所有收藏已清空');
-  }
 
   // ========== 冰箱食材操作（多冰箱） ==========
 

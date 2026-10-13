@@ -87,6 +87,8 @@ export class TtsService {
   private currentSpeakResolve: (() => void) | null = null;
   /** 当前 speak() 的 Promise reject 函数 */
   private currentSpeakReject: ((reason?: Error) => void) | null = null;
+  /** 正在进行的初始化任务 — 避免并发 init() 各自创建一个引擎而泄漏其中一个 */
+  private initTask: Promise<void> | null = null;
 
   private constructor() {
   }
@@ -116,10 +118,30 @@ export class TtsService {
    * @returns Promise，初始化成功时 resolve
    */
   init(config?: TtsConfig): Promise<void> {
+    // 并发调用共享同一个初始化任务：否则两个调用者都会看到 engine === null，
+    // 各自 createEngine，后完成者覆盖 this.engine，先创建的引擎永远不会 shutdown()。
+    if (this.initTask !== null) {
+      return this.initTask;
+    }
+    const task = this.doInit(config);
+    this.initTask = task;
+    task.then(() => {
+      this.initTask = null;
+    }, () => {
+      this.initTask = null;
+    });
+    return task;
+  }
+
+  private doInit(config?: TtsConfig): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      // 如果已初始化，先释放
+      // 如果已初始化，先释放（shutdown 可能抛错，不能让它阻断重新初始化）
       if (this.engine !== null) {
-        this.engine.shutdown();
+        try {
+          this.engine.shutdown();
+        } catch (err) {
+          console.error('TTS 引擎释放异常：' + JSON.stringify(err));
+        }
         this.engine = null;
       }
 
@@ -149,25 +171,41 @@ export class TtsService {
 
             // === 设置永久监听器（不会被 speak() 替换） ===
             // 所有 speak/stop 事件都由这个监听器处理
+            // 回调必须校验 requestId 归属：
+            // stop() 会触发引擎异步抛出上一条请求的 onStop/onComplete，
+            // 若不加校验，这些迟到事件会 resolve 掉"新"一次 speak() 的 Promise，
+            // 使新播报被提前判定完成 → 喇叭图标与实际音频状态脱节。
             const listener: textToSpeech.SpeakListener = {
-              onStart: (_requestId: string, _response: object): void => {
+              onStart: (requestId: string, _response: object): void => {
+                if (requestId !== this.currentRequestId) {
+                  return;
+                }
                 console.info('TTS 开始播报');
                 this.state = TtsState.SPEAKING;
               },
-              onComplete: (_requestId: string, _response: object): void => {
+              onComplete: (requestId: string, _response: object): void => {
+                if (requestId !== this.currentRequestId) {
+                  return;
+                }
                 console.info('TTS 播报完成');
                 this.state = TtsState.IDLE;
                 this.onFinish?.();
                 // 释放当前 speak() 的 Promise
                 this.resolveCurrentSpeak();
               },
-              onStop: (_requestId: string, _response: object): void => {
+              onStop: (requestId: string, _response: object): void => {
+                if (requestId !== this.currentRequestId) {
+                  return;
+                }
                 console.info('TTS 已停止');
                 this.state = TtsState.IDLE;
                 // 停止时也释放 speak() 的 Promise
                 this.resolveCurrentSpeak();
               },
-              onError: (_requestId: string, errorCode: number, errorMessage: string): void => {
+              onError: (requestId: string, errorCode: number, errorMessage: string): void => {
+                if (requestId !== this.currentRequestId) {
+                  return;
+                }
                 console.error('TTS 播报错误：code=' + errorCode.toString() + ', msg=' + errorMessage);
                 this.state = TtsState.ERROR;
                 this.onError?.(errorCode.toString() + ': ' + errorMessage);
