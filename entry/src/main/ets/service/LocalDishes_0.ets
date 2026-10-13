@@ -1,6 +1,6 @@
-﻿import { LocalDish } from "./DishTypes";
+import { LocalDish } from "./DishTypes";
 
-// ===== �ҳ��嵭 (Category 0) =====
+// ===== 家常清淡 (Category 0) =====
 
 export const LOCAL_DISHES_0: LocalDish[] = [
   {

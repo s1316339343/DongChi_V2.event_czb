@@ -1,6 +1,6 @@
-﻿import { LocalDish } from "./DishTypes";
+import { LocalDish } from "./DishTypes";
 
-// ===== �����ʳ (Category 3) =====
+// ===== 快餐速食 (Category 3) =====
 
 export const LOCAL_DISHES_3: LocalDish[] = [
   {
@@ -536,7 +536,7 @@ export const LOCAL_DISHES_3: LocalDish[] = [
     difficulty: '⭐', hasIngredients: false, cookTime: '10分钟', deliveryTime: '20分钟',
     cookCost: 10, deliveryCost: 24, category: 3, isSpicy: false, hasCoriander: false,
     isSeafood: false, isVegetarian: false, timeRank: 0, budgetRank: 1,
-    requiredIngredients: ['面粉', '鸡蛋'],
+    requiredIngredients: ['鸡腿', '生抽', '蜂蜜', '米饭'],
     reason: '这道照烧鸡腿饭好吃又好做，强烈推荐'
   },
   {
@@ -1011,12 +1011,5 @@ export const LOCAL_DISHES_3: LocalDish[] = [
     requiredIngredients: ['米饭', '虾仁', '鸡蛋', '葱花'],
     reason: '虾仁鲜美，米饭粒粒分明，豪华版炒饭'
   },
-  {
-    name: '照烧鸡腿饭', icon: '🍗', time: '20分钟', cost: '18元',
-    difficulty: '⭐⭐', hasIngredients: false, cookTime: '20分钟', deliveryTime: '28分钟',
-    cookCost: 18, deliveryCost: 35, category: 3, isSpicy: false, hasCoriander: false,
-    isSeafood: false, isVegetarian: false, timeRank: 1, budgetRank: 1,
-    requiredIngredients: ['鸡腿', '生抽', '蜂蜜', '米饭'],
-    reason: '照烧酱汁浓郁，鸡腿嫩滑，配米饭绝配'
-  },
+
 ];

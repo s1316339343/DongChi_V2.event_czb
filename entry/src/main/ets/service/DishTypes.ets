@@ -61,27 +61,6 @@ export interface ScoredDish {
   score: number;
 }
 
-// 用户偏好画像 — 从历史决策+收藏中统计
-export interface UserPreferenceProfile {
-  /** 各口味分类被选次数 */
-  categoryCounts: number[];
-  /** 各时间等级被选次数 */
-  timeCounts: number[];
-  /** 各预算等级被选次数 */
-  budgetCounts: number[];
-  /** 各忌口被选次数 */
-  dietCounts: number[];
-  /** 收藏过的菜品名集合 */
-  favoritedNames: Set<string>;
-  /** 收藏菜品的分类分布 */
-  favoriteCategoryCounts: number[];
-  /** 最近 N 次选过的菜品名（排除重复） */
-  recentDishNames: Set<string>;
-  /** 是否更倾向自己做（cookCost 比 deliveryCost 低的比例，0~1） */
-  cookPreferenceRatio: number;
-  /** 总决策次数 */
-  totalDecisions: number;
-}
 
 // ========== 菜品详情类型定义 ==========
 

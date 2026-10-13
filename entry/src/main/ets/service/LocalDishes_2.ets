@@ -1,6 +1,6 @@
-﻿import { LocalDish } from "./DishTypes";
+import { LocalDish } from "./DishTypes";
 
-// ===== ������ʳ (Category 2) =====
+// ===== 健康轻食 (Category 2) =====
 
 export const LOCAL_DISHES_2: LocalDish[] = [
   {
@@ -1067,12 +1067,5 @@ export const LOCAL_DISHES_2: LocalDish[] = [
     requiredIngredients: ['金枪鱼罐头', '生菜', '玉米', '沙拉酱'],
     reason: '金枪鱼高蛋白，玉米清甜，五分钟搞定'
   },
-  {
-    name: '牛油果吐司', icon: '🥑', time: '8分钟', cost: '12元',
-    difficulty: '⭐', hasIngredients: false, cookTime: '8分钟', deliveryTime: '20分钟',
-    cookCost: 12, deliveryCost: 25, category: 2, isSpicy: false, hasCoriander: false,
-    isSeafood: false, isVegetarian: true, timeRank: 0, budgetRank: 1,
-    requiredIngredients: ['牛油果', '全麦面包', '柠檬', '海盐'],
-    reason: '牛油果绵密顺滑，搭配酥脆吐司，营养轻食首选'
-  },
+
 ];
