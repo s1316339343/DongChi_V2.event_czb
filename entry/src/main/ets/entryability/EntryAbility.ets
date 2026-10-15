@@ -48,13 +48,9 @@ export default class EntryAbility extends UIAbility {
       const mainWindow = windowStage.getMainWindowSync();
       configureSystemBars(mainWindow);
 
-      // 监听系统栏区域变化（导航条显示/隐藏/大小变化），实时调整适配
-      mainWindow.on('avoidAreaChange', (data) => {
-        if (data.type === window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR) {
-          hilog.info(DOMAIN, 'testTag', 'Navigation area changed, area: %{public}s',
-            JSON.stringify(data.area));
-        }
-      });
+      // 说明：此前这里注册了 avoidAreaChange 监听，但回调只打印日志、
+      // 且从未 off() 注销（回调闭包持有 mainWindow 局部变量），属于纯泄漏。
+      // 各页面统一使用 expandSafeArea + 固定底部间距适配，无需该监听。
     } catch (err) {
       hilog.error(DOMAIN, 'testTag', 'Failed to setup window. Cause: %{public}s', JSON.stringify(err));
     }

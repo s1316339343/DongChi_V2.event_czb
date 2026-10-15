@@ -10,3 +10,21 @@
 /.clang-tidy
 **/.test
 /.appanalyzer
+
+# 临时调试脚本/输出（不应提交）
+/_tmp_*
+*.tmp
+
+# HAP 构建产物
+*.hap
+*.hsp
+
+# 签名密钥与证书（严禁入库；口令请改用环境变量/CI secret）
+/keyMain/
+*.p12
+*.p7b
+*.cer
+
+# 本地 AI 密钥配置（严禁入库；示例文件 ai-config.local.json.example 保留）
+ai-config.local.json
+**/ai-config.local.json

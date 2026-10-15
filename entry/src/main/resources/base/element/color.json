@@ -47,6 +47,22 @@
     {
       "name": "category_fast",
       "value": "#D0E8FF"
+    },
+    {
+      "name": "step_inactive",
+      "value": "#E0E0E0"
+    },
+    {
+      "name": "state_success",
+      "value": "#4CAF50"
+    },
+    {
+      "name": "state_danger",
+      "value": "#FF4444"
+    },
+    {
+      "name": "state_warning",
+      "value": "#FF8C00"
     }
   ]
 }
