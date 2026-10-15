@@ -1,0 +1,5 @@
+{
+  "_说明": "复制本文件为 ai-config.local.json 并填入你自己的密钥；该文件已被 .gitignore 忽略，不会进入版本库。",
+  "apiKey": "sk-在这里填入你的百炼 API Key",
+  "model": "qwen-flash"
+}
