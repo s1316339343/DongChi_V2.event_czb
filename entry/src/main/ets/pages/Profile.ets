@@ -9,7 +9,7 @@ const DEFAULT_USERNAME: string = '本地测试';
 @Component
 struct Profile {
   @State showContent: boolean = false;
-  @State isLoggedIn: boolean = true;      // 自动登录
+
   @State userName: string = DEFAULT_USERNAME;
   @State userAccount: string = DEFAULT_ACCOUNT;
 

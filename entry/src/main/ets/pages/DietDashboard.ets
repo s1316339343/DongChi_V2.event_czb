@@ -10,7 +10,6 @@
  * - 饮食限制统计
  * - 概览数据卡片
  */
-import { promptAction } from '@kit.ArkUI';
 import router from '@ohos.router';
 import { common } from '@kit.AbilityKit';
 import { DecisionRecord, DbService } from '../service/DbService';
@@ -50,6 +49,7 @@ interface BudgetStat {
 interface TimeStat {
   label: string;
   count: number;
+  color: string;
 }
 
 /** 花费趋势数据点 */
@@ -79,6 +79,18 @@ interface PaddingRect {
   left: number;
 }
 
+/**
+ * 由 ISO 时间字符串生成 "YYYY-MM" 月份键（解析失败返回空串）
+ */
+function buildMonthKey(isoStr: string): string {
+  try {
+    const date = new Date(isoStr);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  } catch (_) {
+    return '';
+  }
+}
+
 // ===== 颜色常量 =====
 const CHART_COLORS: string[] = [
   '#FF6B35', '#4ECDC4', '#FFD93D', '#6BCB77',
@@ -86,12 +98,6 @@ const CHART_COLORS: string[] = [
   '#D4A5A5', '#9B59B6', '#FF6B6B', '#48C9B0',
 ];
 
-const CATEGORY_COLORS: string[] = [
-  '#FFE8D0', // 家常清淡
-  '#FFD0D0', // 重口过瘾
-  '#D0FFE0', // 健康轻食
-  '#D0E8FF', // 快餐速食
-];
 
 const CATEGORY_ACCENT_COLORS: string[] = [
   '#E8A060', // 家常清淡
@@ -125,7 +131,6 @@ struct DietDashboard {
 
   // Canvas 尺寸
   private pieSize: number = 220;
-  private barHeight: number = 400;
 
   aboutToAppear(): void {
     animateTo({ duration: 500, curve: Curve.Smooth }, () => {
@@ -196,6 +201,9 @@ struct DietDashboard {
         }
       }
 
+      // 月份键只与 record.createdAt 有关，提前算一次
+      const recordMonthKey = buildMonthKey(record.createdAt);
+
       // 解析 results 中的菜品
       try {
         const dishes: Array<Record<string, string>> = JSON.parse(record.results) as Array<Record<string, string>>;
@@ -221,10 +229,9 @@ struct DietDashboard {
               dishIconMap.set(name, dish.icon);
             }
 
-            // 花费趋势（按月）
+            // 花费趋势（按月）— 月份只取决于记录本身，不要每道菜都重新解析一次日期
             if (cookedCost > 0) {
-              const date = new Date(record.createdAt);
-              const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+              const monthKey = recordMonthKey;
               const costs = costByMonth.get(monthKey);
               if (costs) {
                 costs.push(cookedCost);
@@ -256,7 +263,8 @@ struct DietDashboard {
         maxCatIdx = i;
       }
     }
-    this.mostFreqCategory = categoryNames[maxCatIdx];
+    // 所有计数都为 0 时不能默认显示 index 0（会谎报"最爱口味=家常清淡"）
+    this.mostFreqCategory = maxCatCount > 0 ? categoryNames[maxCatIdx] : '暂无';
 
     // 最常见菜品
     let maxDishCount = 0;
@@ -284,19 +292,25 @@ struct DietDashboard {
     sortedDishes.sort((a, b) => b.count - a.count);
     this.topDishes = sortedDishes.slice(0, 10);
 
-    // 预算偏好
-    this.budgetStats = [];
+    // 预算偏好：先在本地数组里构建并排序，最后一次赋值。
+    // 原先直接对 @State 数组 push+sort，每次 push 都会触发一次脏标记，
+    // 而本页有 5 个 Canvas，代价明显。
+    const budgets: BudgetStat[] = [];
     budgetCountMap.forEach((cnt, label) => {
-      this.budgetStats.push({ label: label, count: cnt });
+      budgets.push({ label: label, count: cnt });
     });
-    this.budgetStats.sort((a, b) => b.count - a.count);
+    budgets.sort((a, b) => b.count - a.count);
+    this.budgetStats = budgets;
 
-    // 时间偏好
-    this.timeStats = [];
+    // 时间偏好（同上）
+    const times: TimeStat[] = [];
+    let timeColorIdx = 0;
     timeCountMap.forEach((cnt, label) => {
-      this.timeStats.push({ label: label, count: cnt });
+      times.push({ label: label, count: cnt, color: CHART_COLORS[timeColorIdx % CHART_COLORS.length] });
+      timeColorIdx++;
     });
-    this.timeStats.sort((a, b) => b.count - a.count);
+    times.sort((a, b) => b.count - a.count);
+    this.timeStats = times;
 
     // 花费趋势（按月）
     this.costTrend = [];
@@ -317,12 +331,13 @@ struct DietDashboard {
       }
     }
 
-    // 饮食限制统计
-    this.dietStats = [];
+    // 饮食限制统计（先本地构建再单次赋值，避免 @State 数组 churn）
+    const diets: DietStat[] = [];
     dietCountMap.forEach((cnt, label) => {
-      this.dietStats.push({ label: label, count: cnt });
+      diets.push({ label: label, count: cnt });
     });
-    this.dietStats.sort((a, b) => b.count - a.count);
+    diets.sort((a, b) => b.count - a.count);
+    this.dietStats = diets;
   }
 
   // ===== Canvas 绘图方法 =====
@@ -768,7 +783,7 @@ struct DietDashboard {
 
                   // 图例列表（文字形式）
                   Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
-                    ForEach(this.categoryStats, (item: CategoryStat, index: number | undefined) => {
+                    ForEach(this.categoryStats, (item: CategoryStat) => {
                       Row() {
                         Row()
                           .width(10)
@@ -781,7 +796,7 @@ struct DietDashboard {
                           .fontColor($r('app.color.text_secondary'))
                       }
                       .margin({ right: 16, bottom: 8 })
-                    })
+                    }, (item: CategoryStat) => item.name)
                   }
                   .width('100%')
                   .padding({ left: 8, top: 8 })
@@ -885,20 +900,20 @@ struct DietDashboard {
                   .justifyContent(FlexAlign.Center)
 
                   Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
-                    ForEach(this.timeStats, (item: TimeStat, index: number | undefined) => {
+                    ForEach(this.timeStats, (item: TimeStat) => {
                       Row() {
                         Row()
                           .width(10)
                           .height(10)
                           .borderRadius(2)
-                          .backgroundColor(CHART_COLORS[(index as number) % CHART_COLORS.length])
+                          .backgroundColor(item.color)
                           .margin({ right: 6 })
                         Text(`${item.label}: ${item.count}次`)
                           .fontSize(13)
                           .fontColor($r('app.color.text_secondary'))
                       }
                       .margin({ right: 16, bottom: 8 })
-                    })
+                    }, (item: TimeStat) => item.label)
                   }
                   .width('100%')
                   .padding({ left: 8, top: 8 })
@@ -1004,7 +1019,10 @@ struct DietDashboard {
           }
           .edgeEffect(EdgeEffect.Spring)
           .width('100%')
+          .layoutWeight(1)
           .backgroundColor($r('app.color.app_bg'))
+          .opacity(this.showContent ? 1 : 0)
+          .translate({ y: this.showContent ? 0 : 16 })
         }
       }
       .width('100%')

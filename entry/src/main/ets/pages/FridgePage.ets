@@ -19,6 +19,8 @@ struct FridgePage {
   @State isLoading: boolean = true;
   @State savedName: string = '';
   @State showSavedTip: boolean = false;
+  /** 保存提示的自动隐藏定时器，页面销毁时必须清理 */
+  private savedTipTimer: number = -1;
 
   aboutToAppear(): void {
     const params = router.getParams() as Record<string, Object>;
@@ -29,8 +31,9 @@ struct FridgePage {
       if (params['saved'] === true && params['savedName']) {
         this.savedName = params['savedName'] as string;
         this.showSavedTip = true;
-        setTimeout(() => {
+        this.savedTipTimer = setTimeout(() => {
           this.showSavedTip = false;
+          this.savedTipTimer = -1;
         }, 2500);
       }
     }
@@ -42,6 +45,19 @@ struct FridgePage {
 
   onPageShow(): void {
     this.loadFridges();
+  }
+
+  /**
+   * 页面销毁时清理未触发的定时器，避免回调打到已销毁的组件上
+   */
+  aboutToDisappear(): void {
+    if (this.savedTipTimer !== -1) {
+      clearTimeout(this.savedTipTimer);
+      this.savedTipTimer = -1;
+    }
+    // 选择模式标志是一次性状态，离开页面必须复位，
+    // 否则下次正常进入时标题与点击行为都会残留为"选择冰箱"
+    FridgeState.triggerMode = false;
   }
 
   async loadFridges(): Promise<void> {
@@ -87,22 +103,23 @@ struct FridgePage {
   /** 删除冰箱 */
   async deleteFridge(fridge: FridgeInfo): Promise<void> {
     try {
-      await promptAction.showDialog({
+      const data = await promptAction.showDialog({
         title: '删除冰箱',
         message: '确定要删除"' + fridge.name + '"吗？已选食材将丢失。',
         buttons: [
           { text: '取消', color: '#999999' },
           { text: '删除', color: '#FF3B30' }
         ]
-      }).then(async (data) => {
-        if (data.index === 1) {
-          const context = getContext(this);
-          await DbService.deleteFridge(context, fridge.id);
-          await this.loadFridges();
-        }
       });
-    } catch (_) {
-      console.error('FridgePage: 删除对话框取消');
+      if (data.index === 1) {
+        const context = getContext(this);
+        await DbService.deleteFridge(context, fridge.id);
+        await this.loadFridges();
+      }
+    } catch (e) {
+      // 区分"用户取消"与"DB 删除失败"，避免把真实故障记为取消而掩盖问题
+      console.error('FridgePage: 删除冰箱失败', JSON.stringify(e));
+      promptAction.showToast({ message: '删除失败，请重试', duration: 2000 });
     }
   }
 

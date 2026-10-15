@@ -1,4 +1,5 @@
 import router from '@ohos.router';
+import { CATEGORY_NAMES, TIME_LABELS, BUDGET_LABELS, DIET_LABELS } from '../service/DishTypes';
 
 @Entry
 @Component
@@ -13,9 +14,8 @@ struct StepTwo {
   @State canProceed: boolean = false; // 时间+预算都选了才能下一步
 
   @State showContent: boolean = false;
-  @State showNext: boolean = false;
 
-  categories: string[] = ['家常清淡', '重口过瘾', '健康轻食', '快餐速食'];
+  categories: string[] = CATEGORY_NAMES;
 
   aboutToAppear(): void {
     // 获取参数
@@ -102,9 +102,9 @@ struct StepTwo {
             .margin({ bottom: 12 })
 
           Row() {
-            this.tagButton('10分钟内搞定', 0, 'time')
-            this.tagButton('30分钟', 1, 'time')
-            this.tagButton('1小时以上', 2, 'time')
+            ForEach(TIME_LABELS, (label: string, index: number) => {
+              this.tagButton(label, index, 'time')
+            }, (label: string) => label)
           }
           .width('100%')
           .margin({ bottom: 24 })
@@ -118,10 +118,9 @@ struct StepTwo {
             .margin({ bottom: 12 })
 
           Row() {
-            this.tagButton('10元以内', 0, 'budget')
-            this.tagButton('20元以内', 1, 'budget')
-            this.tagButton('50元以内', 2, 'budget')
-            this.tagButton('不设限', 3, 'budget')
+            ForEach(BUDGET_LABELS, (label: string, index: number) => {
+              this.tagButton(label, index, 'budget')
+            }, (label: string) => label)
           }
           .width('100%')
           .margin({ bottom: 24 })
@@ -135,15 +134,17 @@ struct StepTwo {
             .margin({ bottom: 12 })
 
           Row() {
-            this.tagButton('不吃辣', 0, 'diet')
-            this.tagButton('不吃香菜', 1, 'diet')
+            ForEach(DIET_LABELS.slice(0, 2), (label: string, index: number) => {
+              this.tagButton(label, index, 'diet')
+            }, (label: string) => label)
           }
           .width('100%')
           .margin({ bottom: 8 })
 
           Row() {
-            this.tagButton('不吃海鲜', 2, 'diet')
-            this.tagButton('素食', 3, 'diet')
+            ForEach(DIET_LABELS.slice(2, 4), (label: string, index: number) => {
+              this.tagButton(label, index + 2, 'diet')
+            }, (label: string) => label)
           }
           .width('100%')
           .margin({ bottom: 32 })
@@ -193,7 +194,7 @@ struct StepTwo {
     Circle()
       .width(10)
       .height(10)
-      .fill(active ? $r('app.color.app_primary') : '#E0E0E0')
+      .fill(active ? $r('app.color.app_primary') : $r('app.color.step_inactive'))
   }
 
   @Builder
@@ -201,7 +202,7 @@ struct StepTwo {
     Line()
       .width(40)
       .height(2)
-      .stroke(active ? $r('app.color.app_primary') : '#E0E0E0')
+      .stroke(active ? $r('app.color.app_primary') : $r('app.color.step_inactive'))
       .strokeWidth(2)
       .margin({ left: 6, right: 6 })
   }

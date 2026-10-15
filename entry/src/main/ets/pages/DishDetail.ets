@@ -24,7 +24,6 @@ struct DishDetail {
   @State requiredIngredients: string[] = [];
   @State detail: DishDetailInfo | null = null;
   @State stepsExpanded: boolean = false;
-  @State selectedStep: number = -1;
 
   aboutToAppear(): void {
     const params = router.getParams() as Record<string, Object>;
@@ -153,6 +152,11 @@ struct DishDetail {
                   .fontSize(18)
                   .fontWeight(FontWeight.Bold)
 
+                Text('（通用做法）')
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_light'))
+                  .margin({ left: 6 })
+
                 Text(this.stepsExpanded ? '收起' : '展开')
                   .fontSize(13)
                   .fontColor($r('app.color.app_primary'))
@@ -224,7 +228,7 @@ struct DishDetail {
                 Text('⚡ 营养估算')
                   .fontSize(18)
                   .fontWeight(FontWeight.Bold)
-                Text('（每份估算值）')
+                Text('（每份估算值·仅供参考）')
                   .fontSize(12)
                   .fontColor($r('app.color.text_light'))
                   .margin({ left: 8 })
@@ -275,8 +279,6 @@ struct DishDetail {
             .margin({ bottom: 16 })
           }
 
-          // 底部留白
-          Divider().height(0).margin(0)
         }
         .width('100%')
 .padding({ left: 16, right: 16, bottom: 64 })

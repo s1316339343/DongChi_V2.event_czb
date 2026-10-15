@@ -1,27 +1,36 @@
 /**
- * AiSettings - AI 模型设置页
+ * AiSettings - AI 能力设置页
  *
- * 功能：
- * 1. 配置 Ollama 服务地址（电脑 IP:11434）与模型名，保存后长期生效（无需改代码）
- * 2. 测试连接：验证地址是否可达，并列出 Ollama 中实际可用的模型
- * 3. 自动发现：一键扫描当前局域网，自动找到 Ollama 服务
- * 4. 自动发现开关：开启后，地址失效时 APP 会自动重新扫描并记住新地址
+ * 页面职责：
+ * 1. 配置云端大模型（阿里云百炼 / 通义千问，OpenAI 兼容接口）的 API Key 与模型名
+ * 2. 测试连通性：用一次极小的真实请求验证 Key 与模型是否可用，并显示实测耗时
+ * 3. 一键开关 AI 能力（关闭后仅使用本地推荐引擎，完全离线可用）
+ *
+ * 设计说明（为什么不再是"填电脑 IP"）：
+ * 旧版本对接的是局域网里的 Ollama，用户必须自己在电脑上装模型、改环境变量、
+ * 放行防火墙、保证手机与电脑同一 WiFi —— 门槛高且换网络就失效。
+ * 现在改为云端 API：只要有 Key 就能用，且**密钥与模型都可随时更换，无需改代码**。
+ * 唯一代价是需要联网；作为补偿，无 Key / 断网 / 额度用尽时会自动降级到本地引擎，
+ * 功能不会中断。
  */
 import router from '@ohos.router';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
-import { AiModelService, AiTestResult } from '../service/AiModelService';
+import { CloudAiService, CloudAiConfig, CloudAiTestResult } from '../service/CloudAiService';
+
+/** 百炼控制台 API Key 页面（提示用户去哪里申请） */
+const CONSOLE_HINT = 'https://bailian.console.aliyun.com/settings/api-key';
 
 @Entry
 @Component
 struct AiSettings {
-  @State hostInput: string = '';
+  @State apiKeyInput: string = '';
   @State modelInput: string = '';
-  @State autoDiscover: boolean = true;
+  @State aiEnabled: boolean = true;
   @State testing: boolean = false;
-  @State discovering: boolean = false;
-  @State testResult: AiTestResult | null = null;
-  @State discoveredModels: string[] = [];
+  @State testResult: CloudAiTestResult | null = null;
+  /** 是否已有可用的本地配置（用于区分"开箱即用"与"需手动填 Key"） */
+  @State hasKey: boolean = false;
 
   aboutToAppear(): void {
     const context = getContext(this) as common.Context;
@@ -29,100 +38,62 @@ struct AiSettings {
   }
 
   /**
-   * 从本地配置加载已保存的设置
+   * 读取已保存的配置
    */
   async loadConfig(context: common.Context): Promise<void> {
     try {
-      await AiModelService.init(context);
-      this.hostInput = await AiModelService.getStoredHost();
-      this.modelInput = await AiModelService.getStoredModel();
-      this.autoDiscover = await AiModelService.getStoredAutoDiscover();
+      await CloudAiService.init(context);
+      const cfg: CloudAiConfig = await CloudAiService.loadConfig();
+      this.apiKeyInput = cfg.apiKey;
+      this.modelInput = cfg.model;
+      this.aiEnabled = cfg.enabled;
+      this.hasKey = cfg.apiKey.trim().length > 0;
     } catch (error) {
       console.error('加载 AI 配置失败：', JSON.stringify(error));
     }
   }
 
   /**
-   * 测试连接：验证输入的服务地址是否可用
+   * 测试连通性：发一次真实的小请求
    */
   async doTestConnection(): Promise<void> {
-    if (this.hostInput.trim().length === 0) {
-      promptAction.showToast({ message: '请先填写服务地址' });
+    if (this.apiKeyInput.trim().length === 0) {
+      promptAction.showToast({ message: '请先填写 API Key' });
       return;
     }
     this.testing = true;
     this.testResult = null;
-    this.discoveredModels = [];
     try {
-      const r = await AiModelService.testConnection(this.hostInput);
-      this.testResult = r;
-      if (r.ok) {
-        this.discoveredModels = r.models;
-      }
+      this.testResult = await CloudAiService.testConnection(this.apiKeyInput, this.modelInput);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
-      this.testResult = { ok: false, host: this.hostInput, models: [], message: '测试出错：' + errMsg } as AiTestResult;
+      this.testResult = { ok: false, message: '测试出错：' + errMsg, latencyMs: 0 } as CloudAiTestResult;
     } finally {
       this.testing = false;
     }
   }
 
   /**
-   * 自动发现：扫描局域网中的 Ollama 服务，成功后自动回填地址与模型
-   */
-  async doAutoDiscover(): Promise<void> {
-    if (this.discovering) {
-      return;
-    }
-    this.discovering = true;
-    this.testResult = null;
-    this.discoveredModels = [];
-    promptAction.showToast({ message: '正在扫描局域网，请稍候…' });
-    try {
-      const found = await AiModelService.discover();
-      if (found !== null) {
-        const host = AiModelService.normalizeHost(found);
-        this.hostInput = host;
-        const r = await AiModelService.testConnection(host);
-        this.testResult = r;
-        this.discoveredModels = r.models;
-        if (r.ok && r.models.length > 0 && this.modelInput.trim().length === 0) {
-          this.modelInput = r.models[0];
-        }
-        await this.saveConfig();
-      } else {
-        this.testResult = {
-          ok: false, host: '', models: [],
-          message: '未扫描到 Ollama 服务。请确认：电脑已启动 Ollama 且设置了 OLLAMA_HOST=0.0.0.0、手机与电脑连同一个 WiFi'
-        } as AiTestResult;
-      }
-    } finally {
-      this.discovering = false;
-    }
-  }
-
-  /**
-   * 保存配置到本地（长期生效）
+   * 保存配置（立即生效，无需重启）
    */
   async saveConfig(): Promise<void> {
     try {
       const context = getContext(this) as common.Context;
-      await AiModelService.init(context);
-      await AiModelService.saveHost(AiModelService.normalizeHost(this.hostInput));
-      await AiModelService.saveModel(this.modelInput.trim());
-      await AiModelService.saveAutoDiscover(this.autoDiscover);
+      await CloudAiService.init(context);
+      await CloudAiService.saveConfig({
+        apiKey: this.apiKeyInput,
+        model: this.modelInput,
+        enabled: this.aiEnabled,
+        baseUrl: ''
+      } as CloudAiConfig);
+      this.hasKey = this.apiKeyInput.trim().length > 0;
+      // 配置变了，允许下次失败时重新提示降级
+      CloudAiService.resetDegradeNotice();
       promptAction.showToast({ message: '已保存，AI 推荐立即生效' });
     } catch (error) {
       console.error('保存 AI 配置失败：', JSON.stringify(error));
       promptAction.showToast({ message: '保存失败，请重试' });
     }
-  }
-
-  /**
-   * 点击已发现的模型名 → 回填到模型名输入框
-   */
-  pickModel(name: string): void {
-    this.modelInput = name;
   }
 
   build() {
@@ -138,7 +109,7 @@ struct AiSettings {
 
         Blank()
 
-        Text('AI 模型设置')
+        Text('AI 能力设置')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
@@ -152,156 +123,42 @@ struct AiSettings {
       .padding({ left: 20, right: 20, top: 16, bottom: 16 })
       .alignItems(VerticalAlign.Center)
 
-      // ========== 内容区 ==========
       Scroll() {
         Column() {
-          // ---- 服务地址 ----
-          Column() {
-            Text('📡 服务地址（电脑 IP）')
-              .fontSize(15)
-              .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.text_primary'))
-
-            TextInput({ placeholder: '如：192.168.1.100:11434', text: this.hostInput })
-              .width('100%')
-              .height(44)
-              .fontSize(15)
-              .margin({ top: 10 })
-              .backgroundColor('#F7F7F7')
-              .borderRadius(10)
-              .onChange((value: string) => {
-                this.hostInput = value;
-              })
-
-            Text('查看方法：电脑上按 win+R 输入 cmd，执行 ipconfig，找"无线局域网适配器"下的 IPv4 地址')
-              .fontSize(12)
-              .fontColor($r('app.color.text_light'))
-              .margin({ top: 8 })
-              .lineHeight(17)
-          }
-          .width('100%')
-          .backgroundColor(Color.White)
-          .borderRadius(14)
-          .padding(16)
-          .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
-
-          // ---- 模型名 ----
-          Column() {
-            Text('🧠 模型名')
-              .fontSize(15)
-              .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.text_primary'))
-
-            TextInput({ placeholder: '如：qwen2.5:7b（留空自动选择）', text: this.modelInput })
-              .width('100%')
-              .height(44)
-              .fontSize(15)
-              .margin({ top: 10 })
-              .backgroundColor('#F7F7F7')
-              .borderRadius(10)
-              .onChange((value: string) => {
-                this.modelInput = value;
-              })
-
-            Text('对应电脑上 ollama list 命令显示的模型名；留空时自动使用第一个可用模型')
-              .fontSize(12)
-              .fontColor($r('app.color.text_light'))
-              .margin({ top: 8 })
-              .lineHeight(17)
-          }
-          .width('100%')
-          .backgroundColor(Color.White)
-          .borderRadius(14)
-          .padding(16)
-          .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
-          .margin({ top: 12 })
-
-          // ---- 操作按钮 ----
+          // ---- 当前状态 ----
           Row() {
-            Button() {
-              if (this.testing) {
-                LoadingProgress().width(20).height(20).color(Color.White)
-              } else {
-                Text('测试连接').fontSize(15).fontColor(Color.White)
-              }
+            Text(this.hasKey && this.aiEnabled ? '✅' : '⚠️')
+              .fontSize(20)
+              .margin({ right: 10 })
+            Column() {
+              Text(this.hasKey && this.aiEnabled ? 'AI 已启用' : '当前使用本地推荐引擎')
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_primary'))
+              Text(this.hasKey && this.aiEnabled
+                ? '云端大模型参与候选重排并生成个性化推荐理由'
+                : '未配置密钥或已关闭：功能完整可用，仅推荐理由为通用文案')
+                .fontSize(12)
+                .fontColor($r('app.color.text_light'))
+                .margin({ top: 3 })
+                .lineHeight(17)
             }
             .layoutWeight(1)
-            .height(46)
-            .backgroundColor('#4A90D9')
-            .borderRadius(23)
-            .margin({ right: 10 })
-            .enabled(!this.testing && !this.discovering)
-            .onClick(() => {
-              this.doTestConnection();
-            })
-
-            Button() {
-              if (this.discovering) {
-                LoadingProgress().width(20).height(20).color(Color.White)
-              } else {
-                Text('自动发现').fontSize(15).fontColor(Color.White)
-              }
-            }
-            .layoutWeight(1)
-            .height(46)
-            .backgroundColor($r('app.color.app_primary'))
-            .borderRadius(23)
-            .enabled(!this.testing && !this.discovering)
-            .onClick(() => {
-              this.doAutoDiscover();
-            })
+            .alignItems(HorizontalAlign.Start)
           }
           .width('100%')
-          .margin({ top: 16 })
+          .padding(14)
+          .backgroundColor(this.hasKey && this.aiEnabled ? 'rgba(76,175,80,0.08)' : 'rgba(255,152,0,0.08)')
+          .borderRadius(12)
+          .alignItems(VerticalAlign.Center)
 
-          // ---- 测试结果 ----
-          if (this.testResult !== null) {
-            Column() {
-              Text((this.testResult?.ok ? '✅ ' : '❌ ') + (this.testResult?.message ?? ''))
-                .fontSize(13)
-                .fontColor(this.testResult?.ok ? '#4CAF50' : '#FF5252')
-                .lineHeight(19)
-
-              // 发现的模型列表（点击可直接选用）
-              if (this.discoveredModels.length > 0) {
-                Text('可用模型（点击选用）：')
-                  .fontSize(13)
-                  .fontColor($r('app.color.text_secondary'))
-                  .margin({ top: 10 })
-
-                Flex({ wrap: FlexWrap.Wrap }) {
-                  ForEach(this.discoveredModels, (name: string, index: number) => {
-                    Text(name)
-                      .fontSize(13)
-                      .fontColor(this.modelInput === name ? Color.White : $r('app.color.app_primary'))
-                      .backgroundColor(this.modelInput === name ? $r('app.color.app_primary') : '#FFF0E8')
-                      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                      .borderRadius(14)
-                      .margin({ top: 8, right: 8 })
-                      .onClick(() => {
-                        this.pickModel(name);
-                      })
-                  }, (name: string, index: number) => name)
-                }
-                .width('100%')
-              }
-            }
-            .width('100%')
-            .backgroundColor(Color.White)
-            .borderRadius(14)
-            .padding(16)
-            .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
-            .margin({ top: 16 })
-          }
-
-          // ---- 自动发现开关 ----
+          // ---- AI 开关 ----
           Row() {
             Column() {
-              Text('地址失效时自动重新扫描')
+              Text('启用云端 AI')
                 .fontSize(15)
                 .fontColor($r('app.color.text_primary'))
-
-              Text('电脑 IP 变化后，APP 自动扫描局域网找到 Ollama 并记住新地址，无需手动修改')
+              Text('关闭后完全离线运行，所有推荐逻辑在本机完成')
                 .fontSize(12)
                 .fontColor($r('app.color.text_light'))
                 .margin({ top: 4 })
@@ -310,10 +167,10 @@ struct AiSettings {
             .layoutWeight(1)
             .alignItems(HorizontalAlign.Start)
 
-            Toggle({ type: ToggleType.Switch, isOn: this.autoDiscover })
+            Toggle({ type: ToggleType.Switch, isOn: this.aiEnabled })
               .selectedColor($r('app.color.app_primary'))
               .onChange((isOn: boolean) => {
-                this.autoDiscover = isOn;
+                this.aiEnabled = isOn;
               })
           }
           .width('100%')
@@ -324,19 +181,121 @@ struct AiSettings {
           .margin({ top: 12 })
           .alignItems(VerticalAlign.Center)
 
-          // ---- 使用说明 ----
+          // ---- API Key ----
           Column() {
-            Text('💻 电脑端 Ollama 配置（只需做一次）')
+            Text('🔑 API Key')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+
+            TextInput({ placeholder: 'sk-…（阿里云百炼控制台创建）', text: this.apiKeyInput })
+              .type(InputType.Password)
+              .showPasswordIcon(true)
+              .width('100%')
+              .height(44)
+              .fontSize(14)
+              .margin({ top: 10 })
+              .backgroundColor('#F7F7F7')
+              .borderRadius(10)
+              .onChange((value: string) => {
+                this.apiKeyInput = value;
+              })
+
+            Text('获取方式：登录阿里云百炼控制台 → API-KEY 页面创建（' + CONSOLE_HINT + '）。' +
+              '新用户每个模型有约 100 万 Token 免费额度，有效期 90 天。')
+              .fontSize(12)
+              .fontColor($r('app.color.text_light'))
+              .margin({ top: 8 })
+              .lineHeight(17)
+          }
+          .width('100%')
+          .backgroundColor(Color.White)
+          .borderRadius(14)
+          .padding(16)
+          .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
+          .margin({ top: 12 })
+
+          // ---- 模型名 ----
+          Column() {
+            Text('🧠 模型名')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+
+            TextInput({ placeholder: 'qwen-flash（留空使用默认）', text: this.modelInput })
+              .width('100%')
+              .height(44)
+              .fontSize(14)
+              .margin({ top: 10 })
+              .backgroundColor('#F7F7F7')
+              .borderRadius(10)
+              .onChange((value: string) => {
+                this.modelInput = value;
+              })
+
+            Text('推荐 qwen-flash：速度快、在免费额度覆盖范围内。也可填 qwen-plus 等更强的模型。')
+              .fontSize(12)
+              .fontColor($r('app.color.text_light'))
+              .margin({ top: 8 })
+              .lineHeight(17)
+          }
+          .width('100%')
+          .backgroundColor(Color.White)
+          .borderRadius(14)
+          .padding(16)
+          .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
+          .margin({ top: 12 })
+
+          // ---- 测试连接 ----
+          Button() {
+            if (this.testing) {
+              Row() {
+                LoadingProgress().width(18).height(18).color(Color.White).margin({ right: 8 })
+                Text('测试中…').fontSize(15).fontColor(Color.White)
+              }
+              .alignItems(VerticalAlign.Center)
+            } else {
+              Text('测试连接').fontSize(15).fontColor(Color.White)
+            }
+          }
+          .width('100%')
+          .height(46)
+          .backgroundColor('#4A90D9')
+          .borderRadius(23)
+          .margin({ top: 16 })
+          .enabled(!this.testing)
+          .onClick(() => {
+            this.doTestConnection();
+          })
+
+          // ---- 测试结果 ----
+          if (this.testResult !== null) {
+            Column() {
+              Text((this.testResult?.ok ? '✅ ' : '❌ ') + (this.testResult?.message ?? ''))
+                .fontSize(13)
+                .fontColor(this.testResult?.ok ? $r('app.color.state_success') : $r('app.color.state_danger'))
+                .lineHeight(19)
+            }
+            .width('100%')
+            .backgroundColor(Color.White)
+            .borderRadius(14)
+            .padding(16)
+            .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
+            .margin({ top: 16 })
+          }
+
+          // ---- 工作原理说明 ----
+          Column() {
+            Text('⚙️ AI 是如何参与推荐的')
               .fontSize(15)
               .fontWeight(FontWeight.Medium)
               .fontColor($r('app.color.text_primary'))
 
             Column() {
-              this.guideRow('1', '设置环境变量 OLLAMA_HOST=0.0.0.0（关键！Ollama 默认只监听本机，手机连不上）')
-              this.guideRow('2', '重启 Ollama（右下角托盘退出后重新打开）')
-              this.guideRow('3', '防火墙放行 11434 端口（Ollama 启动时弹窗选择"允许"，或手动添加规则）')
-              this.guideRow('4', '下载模型：ollama pull qwen2.5:7b（电脑配置低可用 qwen2.5:3b）')
-              this.guideRow('5', '确认手机与电脑连同一个 WiFi，然后回到本页点"测试连接"或"自动发现"')
+              this.guideRow('1', '本地检索：先按忌口、预算、时间做硬性筛选，从 500 道菜中收敛出候选')
+              this.guideRow('2', '云端重排：大模型只在候选集合内排序，并结合你的补充说明写推荐理由')
+              this.guideRow('3', '结果校验：越界分数、编造的菜名、违反忌口的结果一律丢弃并重试')
+              this.guideRow('4', '自动降级：断网、额度用尽或校验失败时，自动回退本地排序，功能不中断')
             }
             .width('100%')
             .margin({ top: 10 })
@@ -348,7 +307,7 @@ struct AiSettings {
           .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
           .margin({ top: 12 })
 
-          // ---- 保存按钮 ----
+          // ---- 保存 ----
           Button() {
             Text('保存设置').fontSize(16).fontColor(Color.White).fontWeight(FontWeight.Medium)
           }

@@ -1,51 +1,10 @@
 import router from '@ohos.router';
 import { DbService } from '../service/DbService';
 import { FridgeState } from '../service/FridgeState';
+import { IngredientCategory, INGREDIENT_CATEGORIES } from '../service/IngredientCategories';
+import { CATEGORY_NAMES, DIET_LABELS } from '../service/DishTypes';
 import { promptAction } from '@kit.ArkUI';
 
-interface IngredientCategory {
-  name: string;
-  icon: string;
-  items: string[];
-}
-
-const INGREDIENT_CATEGORIES: IngredientCategory[] = [
-  {
-    name: '蔬菜菌菇',
-    icon: '🥬',
-    items: ['番茄', '土豆', '胡萝卜', '白菜', '菠菜', '生菜', '黄瓜', '茄子', '青椒', '洋葱', '大葱', '姜', '蒜', '西兰花', '花菜', '豆角', '蘑菇', '金针菇', '香菇', '玉米', '南瓜', '冬瓜', '芹菜', '韭菜', '豆芽']
-  },
-  {
-    name: '肉禽蛋类',
-    icon: '🥩',
-    items: ['鸡蛋', '鸡胸肉', '鸡腿', '鸡翅', '猪肉', '五花肉', '排骨', '瘦肉', '牛肉', '牛腩', '羊肉', '鸭肉', '火腿肠', '培根', '腊肉']
-  },
-  {
-    name: '豆制品',
-    icon: '🫘',
-    items: ['豆腐', '嫩豆腐', '豆腐干', '千张', '腐竹', '豆皮', '豆浆', '毛豆', '黄豆', '绿豆']
-  },
-  {
-    name: '海鲜水产',
-    icon: '🐟',
-    items: ['虾', '虾仁', '鱼', '鲫鱼', '三文鱼', '带鱼', '蛤蜊', '鱿鱼', '螃蟹', '扇贝']
-  },
-  {
-    name: '主食米面',
-    icon: '🍚',
-    items: ['大米', '米饭', '面条', '挂面', '方便面', '米粉', '面粉', '饺子皮', '馄饨皮', '面包', '馒头', '年糕', '燕麦', '红薯', '紫薯']
-  },
-  {
-    name: '调味佐料',
-    icon: '🧂',
-    items: ['油', '盐', '生抽', '老抽', '醋', '料酒', '蚝油', '豆瓣酱', '番茄酱', '辣椒', '花椒', '八角', '桂皮', '白糖', '蜂蜜', '芝麻', '辣椒酱', '黄豆酱']
-  },
-  {
-    name: '乳制品',
-    icon: '🥛',
-    items: ['牛奶', '酸奶', '黄油', '芝士', '淡奶油', '炼乳']
-  }
-];
 
 @Entry
 @Component
@@ -62,8 +21,8 @@ struct StepThree {
   @State showContent: boolean = false;
   @State hasNoIngredients: boolean = false;
 
-  categories: string[] = ['家常清淡', '重口过瘾', '健康轻食', '快餐速食'];
-  dietLabels: string[] = ['不吃辣', '不吃香菜', '不吃海鲜', '素食'];
+  categories: string[] = CATEGORY_NAMES;
+  dietLabels: string[] = DIET_LABELS;
 
   aboutToAppear(): void {
     const params = router.getParams() as Record<string, Object>;
@@ -548,7 +507,7 @@ struct StepThree {
     Circle()
       .width(10)
       .height(10)
-      .fill(active ? $r('app.color.app_primary') : '#E0E0E0')
+      .fill(active ? $r('app.color.app_primary') : $r('app.color.step_inactive'))
   }
 
   @Builder
@@ -556,7 +515,7 @@ struct StepThree {
     Line()
       .width(40)
       .height(2)
-      .stroke(active ? $r('app.color.app_primary') : '#E0E0E0')
+      .stroke(active ? $r('app.color.app_primary') : $r('app.color.step_inactive'))
       .strokeWidth(2)
       .margin({ left: 6, right: 6 })
   }

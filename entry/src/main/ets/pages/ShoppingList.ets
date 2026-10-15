@@ -1,13 +1,85 @@
 import router from '@ohos.router';
-import promptAction from '@ohos.promptAction';
+import { promptAction } from '@kit.ArkUI';
+import { fileIo as fs, fileUri, picker } from '@kit.CoreFileKit';
 import pasteboard from '@ohos.pasteboard';
-import fs from '@ohos.file.fs';
 
 // 食材用量预估
 interface IngredientItem {
   name: string;
   quantity: string;
   dishes: string[];   // 哪些菜需要该食材
+}
+
+/** 食材 → emoji 图标（模块级常量：原先在 getIngredientIcon 内每次调用都重建整个对象） */
+const INGREDIENT_ICONS: Record<string, string> = {
+  '番茄': '🍅', '土豆': '🥔', '胡萝卜': '🥕', '白菜': '🥬', '菠菜': '🥬',
+  '生菜': '🥬', '黄瓜': '🥒', '茄子': '🍆', '青椒': '🌶️', '洋葱': '🧅',
+  '大葱': '🧅', '姜': '🫚', '蒜': '🧄', '西兰花': '🥦', '花菜': '🥦',
+  '豆角': '🫘', '蘑菇': '🍄', '金针菇': '🍄', '香菇': '🍄', '玉米': '🌽',
+  '南瓜': '🎃', '冬瓜': '🥬', '芹菜': '🥬', '韭菜': '🥬', '豆芽': '🌱',
+  '鸡蛋': '🥚', '鸡胸肉': '🍗', '鸡腿': '🍗', '鸡翅': '🍗', '猪肉': '🥩',
+  '五花肉': '🥩', '排骨': '🍖', '瘦肉': '🥩', '牛肉': '🥩', '牛腩': '🥩',
+  '羊肉': '🥩', '鸭肉': '🍗', '火腿肠': '🌭', '培根': '🥓', '腊肉': '🥩',
+  '豆腐': '🫘', '嫩豆腐': '🫘', '豆腐干': '🫘', '千张': '🫘', '腐竹': '🫘',
+  '豆皮': '🫘', '毛豆': '🫘', '黄豆': '🫘', '绿豆': '🫘',
+  '虾': '🦐', '虾仁': '🦐', '鱼': '🐟', '鲫鱼': '🐟', '三文鱼': '🐟',
+  '带鱼': '🐟', '蛤蜊': '🐚', '鱿鱼': '🦑', '螃蟹': '🦀', '扇贝': '🐚',
+  '大米': '🍚', '米饭': '🍚', '面条': '🍜', '挂面': '🍜', '方便面': '🍜',
+  '米粉': '🍜', '面粉': '🌾', '面包': '🍞', '馒头': '🥟', '年糕': '🍚',
+  '燕麦': '🥣', '红薯': '🍠', '紫薯': '🍠',
+  '牛奶': '🥛', '酸奶': '🥛', '黄油': '🧈', '芝士': '🧀', '淡奶油': '🥛',
+  '炼乳': '🥛', '奶酪': '🧀',
+  '油': '🫒', '盐': '🧂', '生抽': '🫗', '老抽': '🫗', '醋': '🫗', '料酒': '🫗',
+  '蚝油': '🫗', '豆瓣酱': '🫗', '番茄酱': '🥫', '辣椒': '🌶️', '花椒': '🌶️',
+  '八角': '⭐', '桂皮': '🪵', '白糖': '🧂', '蜂蜜': '🍯', '芝麻': '🫘',
+  '辣椒酱': '🌶️', '黄豆酱': '🫗', '淀粉': '🌾', '胡椒粉': '🧂', '鸡精': '🧂',
+  '孜然': '🌿', '蒜蓉': '🧄',
+};
+
+const QTY_VEGGIES: string[] = ['番茄', '土豆', '胡萝卜', '白菜', '菠菜', '生菜', '黄瓜', '茄子', '青椒', '洋葱',
+  '西兰花', '花菜', '豆角', '玉米', '南瓜', '冬瓜', '芹菜', '韭菜', '豆芽', '大葱', '蒜苗',
+  '空心菜', '油麦菜', '苋菜', '藕', '山药', '秋葵', '芦笋', '苦瓜', '丝瓜'];
+const QTY_MEATS: string[] = ['鸡胸肉', '鸡腿', '鸡翅', '猪肉', '五花肉', '排骨', '瘦肉', '牛肉', '牛腩', '羊肉',
+  '鸭肉', '培根', '腊肉', '里脊', '肥牛', '牛腱子', '猪蹄', '猪肝'];
+const QTY_EGGS: string[] = ['鸡蛋', '鸭蛋', '皮蛋', '咸蛋'];
+const QTY_DAIRY: string[] = ['牛奶', '酸奶', '黄油', '芝士', '淡奶油', '炼乳', '奶酪'];
+const QTY_TOFU: string[] = ['豆腐', '嫩豆腐', '豆腐干', '千张', '腐竹', '豆皮', '毛豆', '黄豆', '绿豆'];
+const QTY_SPICES: string[] = ['油', '盐', '生抽', '老抽', '醋', '料酒', '蚝油', '豆瓣酱', '番茄酱', '辣椒',
+  '花椒', '八角', '桂皮', '白糖', '蜂蜜', '芝麻', '辣椒酱', '黄豆酱', '淀粉', '胡椒粉',
+  '鸡精', '味精', '十三香', '孜然', '蒜蓉', '姜', '蒜'];
+
+/** 精确匹配的用量（优先于模糊分类） */
+const QTY_EXACT: Record<string, string> = {
+  '鸡蛋': '2~3个',
+  '米饭': '适量（约200g）',
+  '面条': '适量（约200g）',
+  '挂面': '适量（约200g）',
+  '方便面': '1~2包',
+  '火腿肠': '1~2根',
+  '面包': '2~3片',
+  '饺子皮': '适量（约20张）',
+  '馄饨皮': '适量（约20张）',
+  '粉丝': '1把',
+  '粉条': '1把',
+};
+
+/**
+ * 估算食材常用数量。
+ * 桶顺序很关键：调味类必须排在蔬菜类之前，否则「番茄酱」「辣椒酱」会被
+ * 「番茄」「辣椒」前缀命中而错拿蔬菜用量。
+ */
+function estimateQuantityOf(name: string): string {
+  const exact: string | undefined = QTY_EXACT[name];
+  if (exact !== undefined) {
+    return exact;
+  }
+  if (QTY_SPICES.some(s => name.indexOf(s) >= 0)) return '适量';
+  if (QTY_VEGGIES.some(v => name.indexOf(v) >= 0)) return '适量（1~2个）';
+  if (QTY_MEATS.some(m => name.indexOf(m) >= 0)) return '200~300g';
+  if (QTY_EGGS.some(e => name.indexOf(e) >= 0)) return '2~3个';
+  if (QTY_DAIRY.some(d => name.indexOf(d) >= 0)) return '适量';
+  if (QTY_TOFU.some(t => name.indexOf(t) >= 0)) return '200g';
+  return '适量';
 }
 
 // 接收的菜品数据（简化版 Dish）
@@ -39,82 +111,14 @@ struct ShoppingList {
    * 根据食材名估算常用数量
    */
   estimateQuantity(name: string): string {
-    // 蔬菜类
-    const veggies = ['番茄', '土豆', '胡萝卜', '白菜', '菠菜', '生菜', '黄瓜', '茄子', '青椒', '洋葱',
-      '西兰花', '花菜', '豆角', '玉米', '南瓜', '冬瓜', '芹菜', '韭菜', '豆芽', '大葱', '蒜苗',
-      '空心菜', '油麦菜', '苋菜', '藕', '山药', '秋葵', '芦笋', '苦瓜', '丝瓜'];
-    // 肉类
-    const meats = ['鸡胸肉', '鸡腿', '鸡翅', '猪肉', '五花肉', '排骨', '瘦肉', '牛肉', '牛腩', '羊肉',
-      '鸭肉', '培根', '腊肉', '里脊', '肥牛', '牛腱子', '猪蹄', '猪肝'];
-    // 蛋奶
-    const eggs = ['鸡蛋', '鸭蛋', '皮蛋', '咸蛋'];
-    const dairy = ['牛奶', '酸奶', '黄油', '芝士', '淡奶油', '炼乳', '奶酪'];
-    // 豆制品
-    const tofu = ['豆腐', '嫩豆腐', '豆腐干', '千张', '腐竹', '豆皮', '毛豆', '黄豆', '绿豆'];
-    // 调味
-    const spices = ['油', '盐', '生抽', '老抽', '醋', '料酒', '蚝油', '豆瓣酱', '番茄酱', '辣椒',
-      '花椒', '八角', '桂皮', '白糖', '蜂蜜', '芝麻', '辣椒酱', '黄豆酱', '淀粉', '胡椒粉',
-      '鸡精', '味精', '十三香', '孜然', '蒜蓉', '姜', '蒜'];
-
-    if (name === '鸡蛋') return '2~3个';
-    if (name === '米饭' || name === '面条' || name === '挂面') return '适量（约200g）';
-    if (name === '方便面') return '1~2包';
-    if (name === '火腿肠') return '1~2根';
-    if (name === '面包') return '2~3片';
-    if (name === '饺子皮' || name === '馄饨皮') return '适量（约20张）';
-    if (name === '粉丝' || name === '粉条') return '1把';
-
-    for (const v of veggies) {
-      if (name.indexOf(v) >= 0) return '适量（1~2个）';
-    }
-    for (const m of meats) {
-      if (name.indexOf(m) >= 0) return '200~300g';
-    }
-    for (const e of eggs) {
-      if (name.indexOf(e) >= 0) return '2~3个';
-    }
-    for (const d of dairy) {
-      if (name.indexOf(d) >= 0) return '适量';
-    }
-    for (const t of tofu) {
-      if (name.indexOf(t) >= 0) return '200g';
-    }
-    for (const s of spices) {
-      if (name.indexOf(s) >= 0) return '适量';
-    }
-
-    return '适量';
+    return estimateQuantityOf(name);
   }
 
   /**
    * 获取食材的emoji图标
    */
   getIngredientIcon(name: string): string {
-    const iconMap: Record<string, string> = {
-      '番茄': '🍅', '土豆': '🥔', '胡萝卜': '🥕', '白菜': '🥬', '菠菜': '🥬',
-      '生菜': '🥬', '黄瓜': '🥒', '茄子': '🍆', '青椒': '🌶️', '洋葱': '🧅',
-      '大葱': '🧅', '姜': '🫚', '蒜': '🧄', '西兰花': '🥦', '花菜': '🥦',
-      '豆角': '🫘', '蘑菇': '🍄', '金针菇': '🍄', '香菇': '🍄', '玉米': '🌽',
-      '南瓜': '🎃', '冬瓜': '🥬', '芹菜': '🥬', '韭菜': '🥬', '豆芽': '🌱',
-      '鸡蛋': '🥚', '鸡胸肉': '🍗', '鸡腿': '🍗', '鸡翅': '🍗', '猪肉': '🥩',
-      '五花肉': '🥩', '排骨': '🍖', '瘦肉': '🥩', '牛肉': '🥩', '牛腩': '🥩',
-      '羊肉': '🥩', '鸭肉': '🍗', '火腿肠': '🌭', '培根': '🥓', '腊肉': '🥩',
-      '豆腐': '🫘', '嫩豆腐': '🫘', '豆腐干': '🫘', '千张': '🫘', '腐竹': '🫘',
-      '豆皮': '🫘', '毛豆': '🫘', '黄豆': '🫘', '绿豆': '🫘',
-      '虾': '🦐', '虾仁': '🦐', '鱼': '🐟', '鲫鱼': '🐟', '三文鱼': '🐟',
-      '带鱼': '🐟', '蛤蜊': '🐚', '鱿鱼': '🦑', '螃蟹': '🦀', '扇贝': '🐚',
-      '大米': '🍚', '米饭': '🍚', '面条': '🍜', '挂面': '🍜', '方便面': '🍜',
-      '米粉': '🍜', '面粉': '🌾', '面包': '🍞', '馒头': '🥟', '年糕': '🍚',
-      '燕麦': '🥣', '红薯': '🍠', '紫薯': '🍠',
-      '牛奶': '🥛', '酸奶': '🥛', '黄油': '🧈', '芝士': '🧀', '淡奶油': '🥛',
-      '炼乳': '🥛', '奶酪': '🧀',
-      '油': '🫒', '盐': '🧂', '生抽': '🫗', '老抽': '🫗', '醋': '🫗', '料酒': '🫗',
-      '蚝油': '🫗', '豆瓣酱': '🫗', '番茄酱': '🥫', '辣椒': '🌶️', '花椒': '🌶️',
-      '八角': '⭐', '桂皮': '🪵', '白糖': '🧂', '蜂蜜': '🍯', '芝麻': '🫘',
-      '辣椒酱': '🌶️', '黄豆酱': '🫗', '淀粉': '🌾', '胡椒粉': '🧂', '鸡精': '🧂',
-      '孜然': '🌿', '蒜蓉': '🧄',
-    };
-    return iconMap[name] || '🥗';
+    return INGREDIENT_ICONS[name] || '🥗';
   }
 
   /**
@@ -127,7 +131,7 @@ struct ShoppingList {
     for (const dish of dishes) {
       for (const ing of dish.requiredIngredients) {
         // 跳过用户已有的食材
-        if (!this.hasNoIngredients && this.userIngredients.indexOf(ing) >= 0) {
+        if (this.isUserIngredient(ing)) {
           continue;
         }
         if (map[ing]) {
@@ -151,16 +155,6 @@ struct ShoppingList {
     return items;
   }
 
-  /**
-   * 判断是否有菜品缺食材
-   */
-  hasMissingIngredients(): boolean {
-    if (this.hasNoIngredients) return true;
-    for (const dish of this.dishes) {
-      if (!dish.hasIngredients) return true;
-    }
-    return false;
-  }
 
   /**
    * 判断食材是否已被用户拥有
@@ -174,14 +168,19 @@ struct ShoppingList {
     if (params) {
       if (params['dishes'] !== undefined) {
         try {
-          const raw = JSON.parse(params['dishes'] as string) as DishData[];
-          this.dishes = raw;
+          const parsed: Object = JSON.parse(params['dishes'] as string);
+          if (Array.isArray(parsed)) {
+            this.dishes = parsed as DishData[];
+          } else {
+            console.error('解析菜品数据失败：非数组');
+          }
         } catch (_) {
           console.error('解析菜品数据失败');
         }
       }
       if (params['hasNoIngredients'] !== undefined) {
-        this.hasNoIngredients = params['hasNoIngredients'] as boolean;
+        // 严格判等：字符串 'false' 会被当作真值，从而反转整个过滤逻辑
+        this.hasNoIngredients = params['hasNoIngredients'] === true;
       }
       if (params['userIngredients'] !== undefined) {
         try {
@@ -417,7 +416,7 @@ struct ShoppingList {
       if (dish.requiredIngredients.length > 0) {
         text += '\n';
         for (const ing of dish.requiredIngredients) {
-          const userHas = !this.hasNoIngredients && this.userIngredients.indexOf(ing) >= 0;
+          const userHas = this.isUserIngredient(ing);
           text += userHas ? '  ✅ ' : '  🛒 ';
           text += ing + '\n';
         }
@@ -470,20 +469,46 @@ struct ShoppingList {
       const dateStr = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
       const fileName = `购物清单_${dateStr}.txt`;
 
-      // 使用文件沙箱路径
-      const filePath = context.filesDir + '/' + fileName;
+      // ① 交给用户选择保存位置（沙箱路径用户无法在"文件管理"里找到）
+      let savedToUserVisible = false;
+      try {
+        const documentPicker = new picker.DocumentViewPicker();
+        const uris = await documentPicker.save({ newFileNames: [fileName] });
+        if (uris && uris.length > 0) {
+          const file = fs.openSync(uris[0], fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+          try {
+            fs.writeSync(file.fd, text);
+          } finally {
+            // 写入失败也必须关闭 fd，否则每次重试都泄漏一个描述符
+            fs.closeSync(file);
+          }
+          savedToUserVisible = true;
+        }
+      } catch (pickErr) {
+        console.warn('用户取消选择或保存器不可用，回退到应用目录：' + JSON.stringify(pickErr));
+      }
 
-      // 写入文件
-      const file = fs.openSync(filePath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY);
-      fs.writeSync(file.fd, text);
-      fs.closeSync(file);
+      // ② 回退：写入应用沙箱，并告知完整路径
+      if (!savedToUserVisible) {
+        const filePath = context.filesDir + '/' + fileName;
+        const file = fs.openSync(filePath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+        try {
+          fs.writeSync(file.fd, text);
+        } finally {
+          fs.closeSync(file);
+        }
+        await promptAction.showToast({
+          message: `✅ 已保存到应用目录：${filePath}`,
+          duration: 3000,
+        });
+        console.info('购物清单已保存到：' + filePath);
+        return;
+      }
 
       await promptAction.showToast({
-        message: `✅ 已保存到：${fileName}`,
+        message: `✅ 已保存：${fileName}`,
         duration: 3000,
       });
-
-      console.info('购物清单已保存到：' + filePath);
     } catch (error) {
       console.error('保存文件失败', JSON.stringify(error));
       await promptAction.showToast({
@@ -526,7 +551,7 @@ struct ShoppingList {
             .backgroundColor('rgba(255,107,53,0.10)')
             .borderRadius(8)
             .margin({ top: 2 })
-        })
+        }, (dishName: string) => dishName)
       }
       .alignItems(HorizontalAlign.End)
     }
@@ -537,8 +562,8 @@ struct ShoppingList {
     .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
     .margin({ bottom: 8 })
     .opacity(this.showContent ? 1 : 0)
-    .translate({ y: this.showContent ? 0 : 15 + index * 10 })
-    .animation({ duration: 400 + index * 80, curve: Curve.Smooth })
+    .translate({ y: this.showContent ? 0 : 15 + Math.min(index, 6) * 10 })
+    .animation({ duration: 350, curve: Curve.Smooth, delay: Math.min(index, 6) * 40 })
   }
 
   @Builder
@@ -591,7 +616,7 @@ struct ShoppingList {
             .borderRadius(14)
             .border({ width: this.isUserIngredient(ing) ? 1 : 0, color: 'rgba(76,175,80,0.30)' })
             .margin({ right: 6, bottom: 6 })
-          })
+          }, (ing: string) => ing)
         }
         .width('100%')
       } else {
@@ -608,7 +633,7 @@ struct ShoppingList {
     .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 2 })
     .margin({ bottom: 8 })
     .opacity(this.showContent ? 1 : 0)
-    .translate({ y: this.showContent ? 0 : 15 + index * 10 })
-    .animation({ duration: 400 + index * 80, curve: Curve.Smooth })
+    .translate({ y: this.showContent ? 0 : 15 + Math.min(index, 6) * 10 })
+    .animation({ duration: 350, curve: Curve.Smooth, delay: Math.min(index, 6) * 40 })
   }
 }

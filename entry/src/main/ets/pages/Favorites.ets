@@ -126,6 +126,13 @@ struct Favorites {
     return cost > 0 ? '¥' + cost : '-';
   }
 
+  /**
+   * 外卖价格显示（无有效价格时显示 -）
+   */
+  formatDeliveryCost(cost: number): string {
+    return cost > 0 ? '约 ¥' + cost : '-';
+  }
+
   // "看教程" — 联网功能暂未开放
   async openTutorial(): Promise<void> {
     try {
@@ -293,7 +300,7 @@ struct Favorites {
               Text('⏱')
                 .fontSize(12)
                 .margin({ right: 3 })
-              Text(dish.time || (dish.cookTime ? '做' + dish.cookTime : ''))
+              Text(dish.time || dish.cookTime || '')
                 .fontSize(13)
                 .fontColor($r('app.color.text_secondary'))
             }
@@ -366,10 +373,10 @@ struct Favorites {
             .fontColor($r('app.color.text_secondary'))
             .margin({ top: 4 })
 
-          Text('¥' + dish.cookCost)
+          Text(this.formatCost(dish.cookCost))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#4CAF50')
+            .fontColor($r('app.color.state_success'))
             .margin({ top: 2 })
 
           Button() {
@@ -379,11 +386,11 @@ struct Favorites {
           }
           .width(80)
           .height(28)
-          .backgroundColor('#4CAF50')
+          .backgroundColor($r('app.color.state_success'))
           .borderRadius(14)
           .margin({ top: 8 })
-          .onClick(async () => {
-            await this.openTutorial();
+          .onClick(() => {
+            this.openTutorial();
           })
         }
         .layoutWeight(1)
@@ -408,7 +415,7 @@ struct Favorites {
             .fontColor($r('app.color.text_secondary'))
             .margin({ top: 4 })
 
-          Text('约 ¥' + dish.deliveryCost)
+          Text(this.formatDeliveryCost(dish.deliveryCost))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
             .fontColor($r('app.color.app_primary'))

@@ -47,10 +47,10 @@ struct StepOne {
         .margin({ bottom: 32 })
 
       // 四个口味卡片
-      this.categoryCard('🍚', '家常清淡', '米饭、炒菜、粥\n温暖家常的味道', 0, '#FFE8D0')
-      this.categoryCard('🍜', '重口过瘾', '火锅、烧烤、麻辣烫\n刺激味蕾的选择', 1, '#FFD0D0')
-      this.categoryCard('🥗', '健康轻食', '沙拉、减脂餐、轻食\n清爽无负担', 2, '#D0FFE0')
-      this.categoryCard('🍔', '快餐速食', '汉堡、炸鸡、披萨\n快速解决温饱', 3, '#D0E8FF')
+      this.categoryCard('🍚', '家常清淡', '米饭、炒菜、粥\n温暖家常的味道', 0)
+      this.categoryCard('🍜', '重口过瘾', '火锅、烧烤、麻辣烫\n刺激味蕾的选择', 1)
+      this.categoryCard('🥗', '健康轻食', '沙拉、减脂餐、轻食\n清爽无负担', 2)
+      this.categoryCard('🍔', '快餐速食', '汉堡、炸鸡、披萨\n快速解决温饱', 3)
 
       Blank()
 
@@ -131,7 +131,7 @@ struct StepOne {
     Circle()
       .width(10)
       .height(10)
-      .fill(active ? $r('app.color.app_primary') : '#E0E0E0')
+      .fill(active ? $r('app.color.app_primary') : $r('app.color.step_inactive'))
   }
 
   @Builder
@@ -139,13 +139,13 @@ struct StepOne {
     Line()
       .width(40)
       .height(2)
-      .stroke(active ? $r('app.color.app_primary') : '#E0E0E0')
+      .stroke(active ? $r('app.color.app_primary') : $r('app.color.step_inactive'))
       .strokeWidth(2)
       .margin({ left: 6, right: 6 })
   }
 
   @Builder
-  categoryCard(icon: string, title: string, desc: string, index: number, bgColor: string) {
+  categoryCard(icon: string, title: string, desc: string, index: number) {
     Column() {
       Row() {
         Text(icon)
@@ -201,7 +201,7 @@ struct StepOne {
       })
       .opacity(this.showContent ? 1 : 0)
       .translate({ y: this.showContent ? 0 : 20 + index * 10 })
-      .animation({ duration: 300 + index * 100, curve: Curve.Smooth })
+      .animation({ duration: 300, curve: Curve.Smooth, delay: Math.min(index, 4) * 60 })
     }
   }
 }

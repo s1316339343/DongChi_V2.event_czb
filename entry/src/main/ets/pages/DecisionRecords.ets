@@ -8,6 +8,7 @@ import router from '@ohos.router';
 import { common } from '@kit.AbilityKit';
 import { DbService, DecisionRecord } from '../service/DbService';
 import { promptAction } from '@kit.ArkUI';
+import { RecommendService } from '../service/RecommendService';
 
 interface DisplayDish {
   name: string;
@@ -30,6 +31,8 @@ struct DecisionRecords {
   @State showContent: boolean = false;
   @State records: DecisionRecord[] = [];
   @State isLoading: boolean = true;
+  /** 记录 id → 解析后的菜品列表。缓存起来，避免每帧在 ForEach 里重新 JSON.parse */
+  @State parsedDishMap: Map<number, DisplayDish[]> = new Map();
 
   aboutToAppear(): void {
     // 仅做进入动画，数据加载延迟到 onPageShow 统一处理
@@ -52,13 +55,33 @@ struct DecisionRecords {
   async loadRecords(context: common.Context): Promise<void> {
     this.isLoading = true;
     try {
-      this.records = await DbService.getAllDecisions(context);
+      const records = await DbService.getAllDecisions(context);
+      this.records = records;
+      // 一次性解析所有记录的菜品，供渲染直接读取
+      const cache: Map<number, DisplayDish[]> = new Map();
+      for (const record of records) {
+        if (record.id !== undefined) {
+          cache.set(record.id, this.parseDishNames(record.results));
+        }
+      }
+      this.parsedDishMap = cache;
     } catch (error) {
       console.error('加载决策记录失败：', JSON.stringify(error));
       this.records = [];
+      this.parsedDishMap = new Map();
     } finally {
       this.isLoading = false;
     }
+  }
+
+  /**
+   * 读取某条记录已缓存的菜品列表
+   */
+  dishListOf(record: DecisionRecord): DisplayDish[] {
+    if (record.id === undefined) {
+      return [];
+    }
+    return this.parsedDishMap.get(record.id) || [];
   }
 
   /**
@@ -100,9 +123,15 @@ struct DecisionRecords {
    * 删除一条决策记录
    */
   async deleteRecord(record: DecisionRecord): Promise<void> {
+    if (record.id === undefined) {
+      return;
+    }
     const context = getContext(this);
     try {
-      await DbService.deleteDecision(context, record.id!);
+      await DbService.deleteDecision(context, record.id);
+      // 删除决策会连带删除其关联收藏（见 DbService.deleteDecision），
+      // 因此偏好画像缓存必须同步失效，否则推荐会继续用已删除的数据
+      RecommendService.markProfileDirty();
       // 刷新列表
       await this.loadRecords(context);
     } catch (error) {
@@ -141,6 +170,7 @@ struct DecisionRecords {
     const context = getContext(this);
     try {
       await DbService.deleteAllDecisions(context);
+      RecommendService.markProfileDirty();
       await this.loadRecords(context);
     } catch (error) {
       console.error('删除全部决策记录失败：', JSON.stringify(error));
@@ -348,7 +378,7 @@ struct DecisionRecords {
         justifyContent: FlexAlign.Start,
         alignItems: ItemAlign.Center,
       }) {
-        ForEach(this.parseDishNames(record.results), (dish: DisplayDish) => {
+        ForEach(this.dishListOf(record), (dish: DisplayDish) => {
           Row() {
             Text(dish.icon || '🍽️')
               .fontSize(16)

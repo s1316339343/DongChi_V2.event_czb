@@ -5,6 +5,7 @@ import { promptAction } from '@kit.ArkUI';
 import { RecommendService } from '../service/RecommendService';
 import { AiDish } from '../service/DishTypes';
 import { DbService, DecisionRecord, FavoriteDish } from '../service/DbService';
+import { LOCAL_DISHES } from '../service/LocalDishes';
 import { RecommendSpeaker, DishOverview } from '../service/TtsService';
 
 // 菜品数据结构
@@ -21,6 +22,8 @@ class Dish {
   deliveryCost: number = 0;
   reason: string = '';
   requiredIngredients: string[] = [];
+  /** 预计算的元信息文本（难度/时间/成本）— 避免每次渲染重复拼接 */
+  metaText: string = '';
 
   constructor(name: string, icon: string, time: string, cost: string,
     difficulty: string, hasIngredients: boolean, cookTime: string,
@@ -38,6 +41,16 @@ class Dish {
     this.deliveryCost = deliveryCost;
     this.reason = reason;
     this.requiredIngredients = requiredIngredients;
+    this.metaText = Dish.buildMetaText(difficulty, time, cost);
+  }
+
+  /** 难度/时间/成本元信息；成本缺失（空/短横线/null）时不显示成本段 */
+  static buildMetaText(difficulty: string, time: string, cost: string): string {
+    let s = difficulty + '  ' + time;
+    if (cost !== '' && cost !== '-' && cost.toLowerCase() !== 'null') {
+      s += '  ～' + cost;
+    }
+    return s;
   }
 
   // 从 AI 返回数据创建 Dish
@@ -49,6 +62,24 @@ class Dish {
       ai.requiredIngredients || []
     );
   }
+}
+
+/** Dish → 可序列化数据（字段名即路由参数名，不可随意改名） */
+function dishToPayload(d: Dish): DishResultData {
+  return {
+    name: d.name,
+    icon: d.icon,
+    time: d.time,
+    cost: d.cost,
+    difficulty: d.difficulty,
+    hasIngredients: d.hasIngredients,
+    cookTime: d.cookTime,
+    deliveryTime: d.deliveryTime,
+    cookCost: d.cookCost,
+    deliveryCost: d.deliveryCost,
+    reason: d.reason,
+    requiredIngredients: d.requiredIngredients,
+  };
 }
 
 // 决策结果菜品数据（用于保存到数据库的 JSON 序列化）
@@ -67,21 +98,6 @@ interface DishResultData {
   requiredIngredients: string[];
 }
 
-// 用于导航传递的菜品数据结构
-interface NavDishData {
-  name: string;
-  icon: string;
-  time: string;
-  cost: string;
-  difficulty: string;
-  hasIngredients: boolean;
-  cookTime: string;
-  deliveryTime: string;
-  cookCost: number;
-  deliveryCost: number;
-  reason: string;
-  requiredIngredients: string[];
-}
 
 @Entry
 @Component
@@ -99,8 +115,19 @@ struct Recommend {
   @State animTrigger: boolean = false;
   @State isLoading: boolean = true;
   @State isLocalRecommend: boolean = false;
-  @State priorityMode: string = 'balanced'; // 'balanced' | 'time_budget' | 'ingredients'
   @State priorityActive: string = 'balanced'; // 实际生效的优先级
+  /** 预计算的条件摘要 — 避免每次渲染重复拼接字符串 */
+  @State conditionSummary: string = '';
+  /** 是否处于"AI 与本地推荐均失败"的硬编码兜底态 —— 此时不写入决策记录 */
+  private isHardcodedFallback: boolean = false;
+  /**
+   * 用户自由补充的处境描述（如"两个人吃，冰箱里有鸡蛋番茄"）。
+   * 这是云端重排最有价值的输入：结构化条件下无法表达的软信息都在这里，
+   * 模型据此写出真正有针对性的推荐理由。
+   */
+  @State userNote: string = '';
+  /** 补充说明输入区是否展开 */
+  @State noteExpanded: boolean = false;
 
   // 收藏状态映射
   @State favoritedMap: Record<string, boolean> = {};
@@ -245,7 +272,8 @@ struct Recommend {
 
     try {
       const result = await RecommendService.getRecommendations(
-        getContext(this), this.category, this.time, this.budget, this.diet, this.ingredients, this.hasNoIngredients, this.priorityActive
+        getContext(this), this.category, this.time, this.budget, this.diet,
+        this.ingredients, this.hasNoIngredients, this.priorityActive, this.userNote
       );
 
       this.isLocalRecommend = result.isLocal;
@@ -282,6 +310,8 @@ struct Recommend {
           new Dish('蛋炒饭', '🍚', '15分钟', '6元', '⭐', true, '15分钟', '20分钟', 6, 16,
             '剩饭变身，方便又美味')
         ];
+        // 标记为演示兜底数据：不得当作真实决策写入历史，否则会污染仪表盘统计
+        this.isHardcodedFallback = true;
       }
       // 极端情况：AI 与本地推荐均失败，弹窗告知用户
       this.showLocalFallbackDialog('AI 服务与本地推荐均出现异常，已使用内置基础菜品兜底');
@@ -296,7 +326,43 @@ struct Recommend {
       this.loadFavoriteStatus();
       // 语音播报推荐结果
       this.autoSpeakRecommendations(this.ttsGeneration);
+      // 刷新条件摘要（食材数量等可能已变化）
+      this.conditionSummary = this.buildConditionSummary();
     }
+  }
+
+  /**
+   * 构建条件摘要文字（只在条件变化或推荐刷新时计算一次）
+   */
+  buildConditionSummary(): string {
+    const parts: string[] = [];
+    parts.push(this.categories[this.category] || '家常清淡');
+
+    if (this.time >= 0 && this.time < this.timeLabels.length) {
+      parts.push('⏰' + this.timeLabels[this.time]);
+    }
+
+    if (this.budget >= 0 && this.budget < this.budgetLabels.length) {
+      parts.push('💰' + this.budgetLabels[this.budget]);
+    }
+
+    if (this.diet.length > 0) {
+      const dietTexts = this.diet
+        .map(i => this.dietLabels[i] || '')
+        .filter(t => t.length > 0)
+        .join('、');
+      if (dietTexts.length > 0) {
+        parts.push('❌' + dietTexts);
+      }
+    }
+
+    if (this.hasNoIngredients && this.ingredients.length === 0) {
+      parts.push('🈚 没有食材');
+    } else if (this.ingredients.length > 0) {
+      parts.push('🥬' + this.ingredients.length + '种食材');
+    }
+
+    return parts.join(' | ');
   }
 
   /**
@@ -307,26 +373,17 @@ struct Recommend {
     if (this.decisionRecordSaved) {
       return;
     }
+    // 硬编码演示兜底数据不是用户的真实决策，禁止落库
+    if (this.isHardcodedFallback) {
+      return;
+    }
     if (this.dishes.length === 0) {
       return;
     }
     try {
       const context = getContext(this);
       // 构建 results JSON
-      const resultsData: DishResultData[] = this.dishes.map(d => ({
-        name: d.name,
-        icon: d.icon,
-        time: d.time,
-        cost: d.cost,
-        difficulty: d.difficulty,
-        hasIngredients: d.hasIngredients,
-        cookTime: d.cookTime,
-        deliveryTime: d.deliveryTime,
-        cookCost: d.cookCost,
-        deliveryCost: d.deliveryCost,
-        reason: d.reason,
-        requiredIngredients: d.requiredIngredients,
-      } as DishResultData));
+      const resultsData: DishResultData[] = this.dishes.map(d => dishToPayload(d));
       const record: DecisionRecord = {
         category: this.category,
         categoryName: this.categories[this.category] || '家常清淡',
@@ -343,6 +400,8 @@ struct Recommend {
       };
       this.currentDecisionId = await DbService.saveDecision(context, record);
       this.decisionRecordSaved = true;
+      // 新增决策后立即使偏好画像缓存失效，否则口味统计长期滞后
+      RecommendService.markProfileDirty();
     } catch (error) {
       console.error('保存决策记录失败：', JSON.stringify(error));
     }
@@ -403,34 +462,6 @@ struct Recommend {
     }
   }
 
-  /**
-   * 获取条件摘要文字
-   */
-  getConditionSummary(): string {
-    const parts: string[] = [];
-    parts.push(this.categories[this.category] || '家常清淡');
-
-    if (this.time >= 0 && this.time < this.timeLabels.length) {
-      parts.push('⏰' + this.timeLabels[this.time]);
-    }
-
-    if (this.budget >= 0 && this.budget < this.budgetLabels.length) {
-      parts.push('💰' + this.budgetLabels[this.budget]);
-    }
-
-    if (this.diet.length > 0) {
-      const dietTexts = this.diet.map(i => this.dietLabels[i]).join('、');
-      parts.push('❌' + dietTexts);
-    }
-
-    if (this.hasNoIngredients && this.ingredients.length === 0) {
-      parts.push('🈚 没有食材');
-    } else if (this.ingredients.length > 0) {
-      parts.push('🥬' + this.ingredients.length + '种食材');
-    }
-
-    return parts.join(' | ');
-  }
 
   /**
    * AI 失败降级本地推荐时的原因提示弹窗
@@ -467,26 +498,16 @@ struct Recommend {
     return cost > 0 ? '约 ¥' + cost : '-';
   }
 
-  /**
-   * 菜品卡片头部元信息（难度/时间/成本），成本缺失（cost 为 "-"）时不显示成本段
-   */
-  dishMetaText(dish: Dish): string {
-    let s = dish.difficulty + '  ' + dish.time;
-    if (dish.cost !== '' && dish.cost !== '-') {
-      s += '  ～' + dish.cost;
-    }
-    return s;
-  }
 
   build() {
     Column() {
       // 顶部
       Row() {
-        this.stepDot(0, true)
+        this.stepDot(true)
         this.stepLine(true)
-        this.stepDot(1, true)
+        this.stepDot(true)
         this.stepLine(true)
-        this.stepDot(2, true)
+        this.stepDot(true)
       }
       .width('60%')
       .margin({ top: 40, bottom: 8 })
@@ -517,12 +538,83 @@ struct Recommend {
       .alignItems(VerticalAlign.Center)
 
       // 条件回显
-      Text(this.getConditionSummary())
+      Text(this.conditionSummary)
         .fontSize(13)
         .fontColor($r('app.color.text_light'))
         .margin({ bottom: 20 })
         .textAlign(TextAlign.Center)
         .padding({ left: 16, right: 16 })
+
+      // ===== 补充说明输入（喂给云端重排的软信息）=====
+      if (!this.isLoading && this.dishes.length > 0) {
+        Column() {
+          Row() {
+            Text('💬')
+              .fontSize(14)
+              .margin({ right: 6 })
+            Text(this.noteExpanded ? '补充说明（帮你推荐得更准）' : '补充说明')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_secondary'))
+            Blank()
+            Text(this.noteExpanded ? '收起' : '展开')
+              .fontSize(12)
+              .fontColor($r('app.color.app_primary'))
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+          .onClick(() => {
+            this.noteExpanded = !this.noteExpanded;
+          })
+
+          if (this.noteExpanded) {
+            TextInput({
+              placeholder: '如：两个人吃，冰箱里还有鸡蛋和番茄，今天不太想动手',
+              text: this.userNote
+            })
+              .width('100%')
+              .height(42)
+              .fontSize(13)
+              .margin({ top: 8 })
+              .backgroundColor('#F7F7F7')
+              .borderRadius(10)
+              .maxLength(60)
+              .onChange((value: string) => {
+                this.userNote = value;
+              })
+
+            Row() {
+              Text('这段描述会随候选菜品一起交给 AI，用于生成更贴合你处境的理由')
+                .fontSize(11)
+                .fontColor($r('app.color.text_light'))
+                .layoutWeight(1)
+                .lineHeight(15)
+
+              Button() {
+                Text('应用')
+                  .fontSize(12)
+                  .fontColor(Color.White)
+              }
+              .height(30)
+              .backgroundColor($r('app.color.app_primary'))
+              .borderRadius(15)
+              .margin({ left: 8 })
+              .onClick(() => {
+                // 重新走一遍推荐，让新描述参与重排
+                this.fetchAIRecommendations(undefined, false);
+              })
+            }
+            .width('100%')
+            .margin({ top: 8 })
+            .alignItems(VerticalAlign.Center)
+          }
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+        .backgroundColor(Color.White)
+        .borderRadius(12)
+        .margin({ left: 20, right: 20, bottom: 12 })
+      }
 
       // 本地推荐提示条（降级模式时显示）
       if (this.isLocalRecommend) {
@@ -545,7 +637,7 @@ struct Recommend {
           }
           .layoutWeight(1)
 
-          Text('本地库·500道')
+          Text('本地库·' + LOCAL_DISHES.length + '道')
             .fontSize(10)
             .fontColor('#DAA520')
             .padding({ left: 8, right: 8, top: 3, bottom: 3 })
@@ -580,8 +672,7 @@ struct Recommend {
           .margin({ right: 8 })
           .onClick(() => {
             if (this.priorityActive !== 'time_budget') {
-              this.priorityMode = 'time_budget';
-              this.fetchAIRecommendations('time_budget');
+              this.fetchAIRecommendations('time_budget', true);
             }
           })
 
@@ -601,8 +692,7 @@ struct Recommend {
           .margin({ right: 8 })
           .onClick(() => {
             if (this.priorityActive !== 'ingredients') {
-              this.priorityMode = 'ingredients';
-              this.fetchAIRecommendations('ingredients');
+              this.fetchAIRecommendations('ingredients', true);
             }
           })
 
@@ -621,8 +711,7 @@ struct Recommend {
           .borderRadius(16)
           .onClick(() => {
             if (this.priorityActive !== 'balanced') {
-              this.priorityMode = 'balanced';
-              this.fetchAIRecommendations('balanced');
+              this.fetchAIRecommendations('balanced', true);
             }
           })
         }
@@ -744,7 +833,7 @@ struct Recommend {
               .textOverflow({ overflow: TextOverflow.Ellipsis })
           }
 
-          Text(this.dishMetaText(dish))
+          Text(dish.metaText)
             .fontSize(13)
             .fontColor($r('app.color.text_secondary'))
             .margin({ top: 4 })
@@ -756,8 +845,8 @@ struct Recommend {
         Text(this.favoritedMap[dish.name] ? '❤️' : '🤍')
           .fontSize(24)
           .margin({ left: 8 })
-          .onClick(async () => {
-            await this.toggleFavorite(dish);
+          .onClick(() => {
+            this.toggleFavorite(dish);
           })
       }
       .width('100%')
@@ -898,19 +987,16 @@ struct Recommend {
     .shadow({ radius: 6, color: 'rgba(0,0,0,0.06)', offsetY: 3 })
     .margin({ bottom: 16 })
     .opacity(this.animTrigger ? 1 : 0)
-    .translate({ y: this.animTrigger ? 0 : 40 + index * 20 })
-    .animation({ duration: 500 + index * 150, curve: Curve.Smooth })
-    .onClick(async () => {
-      await this.openTutorial(dish);
-    })
+    .translate({ y: this.animTrigger ? 0 : 40 + Math.min(index, 5) * 20 })
+    .animation({ duration: 400, curve: Curve.Smooth })
   }
 
   @Builder
-  stepDot(index: number, active: boolean) {
+  stepDot(active: boolean) {
     Circle()
       .width(10)
       .height(10)
-      .fill(active ? $r('app.color.app_primary') : '#E0E0E0')
+      .fill(active ? $r('app.color.app_primary') : $r('app.color.step_inactive'))
   }
 
   @Builder
@@ -918,45 +1004,23 @@ struct Recommend {
     Line()
       .width(40)
       .height(2)
-      .stroke(active ? $r('app.color.app_primary') : '#E0E0E0')
+      .stroke(active ? $r('app.color.app_primary') : $r('app.color.step_inactive'))
       .strokeWidth(2)
       .margin({ left: 6, right: 6 })
   }
 
-  // ========== [单机化] 第三方应用安装检测已移除 ==========
-  // 原 isAppInstalledBySchemes() 方法—通过 URL Scheme 检测外部 App 是否安装
-  // 单机模式下不再需要跳转第三方平台，此方法已废弃
-
-  // ========== [单机化] 第三方平台跳转对话框已移除 ==========
-  // 原 showRedirectDialog() — 跳转到下厨房等第三方网站
-  // 单机模式下不再需要跳转第三方平台，此方法已废弃
-
   // 导航到菜品详情页
-  async openTutorial(dish: Dish): Promise<void> {
-    const navItem: NavDishData = {
-      name: dish.name,
-      icon: dish.icon,
-      time: dish.time,
-      cost: dish.cost,
-      difficulty: dish.difficulty,
-      hasIngredients: dish.hasIngredients,
-      cookTime: dish.cookTime,
-      deliveryTime: dish.deliveryTime,
-      cookCost: dish.cookCost,
-      deliveryCost: dish.deliveryCost,
-      reason: dish.reason,
-      requiredIngredients: dish.requiredIngredients,
-    };
+  openTutorial(dish: Dish): void {
     router.pushUrl({
       url: 'pages/DishDetail',
       params: {
-        name: navItem.name,
-        icon: navItem.icon,
-        reason: navItem.reason,
-        difficulty: navItem.difficulty,
-        time: navItem.time,
-        cost: navItem.cost,
-        requiredIngredients: JSON.stringify(navItem.requiredIngredients),
+        name: dish.name,
+        icon: dish.icon,
+        reason: dish.reason,
+        difficulty: dish.difficulty,
+        time: dish.time,
+        cost: dish.cost,
+        requiredIngredients: JSON.stringify(dish.requiredIngredients),
       }
     });
   }
@@ -983,20 +1047,7 @@ struct Recommend {
    * 导航到购物清单页面（针对单个菜品）
    */
   navigateToShoppingListForDish(dish: Dish): void {
-    const navItem: NavDishData = {
-      name: dish.name,
-      icon: dish.icon,
-      time: dish.time,
-      cost: dish.cost,
-      difficulty: dish.difficulty,
-      hasIngredients: dish.hasIngredients,
-      cookTime: dish.cookTime,
-      deliveryTime: dish.deliveryTime,
-      cookCost: dish.cookCost,
-      deliveryCost: dish.deliveryCost,
-      reason: dish.reason,
-      requiredIngredients: dish.requiredIngredients,
-    };
+    const navItem: DishResultData = dishToPayload(dish);
     router.pushUrl({
       url: 'pages/ShoppingList',
       params: {
@@ -1012,23 +1063,7 @@ struct Recommend {
    */
   navigateToShoppingList(): void {
     // 将当前推荐菜品数据序列化后传递
-    const dishesData: NavDishData[] = this.dishes.map(d => {
-      const navItem: NavDishData = {
-        name: d.name,
-        icon: d.icon,
-        time: d.time,
-        cost: d.cost,
-        difficulty: d.difficulty,
-        hasIngredients: d.hasIngredients,
-        cookTime: d.cookTime,
-        deliveryTime: d.deliveryTime,
-        cookCost: d.cookCost,
-        deliveryCost: d.deliveryCost,
-        reason: d.reason,
-        requiredIngredients: d.requiredIngredients,
-      };
-      return navItem;
-    });
+    const dishesData: DishResultData[] = this.dishes.map(d => dishToPayload(d));
     router.pushUrl({
       url: 'pages/ShoppingList',
       params: {
