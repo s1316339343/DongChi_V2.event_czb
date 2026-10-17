@@ -28,3 +28,7 @@
 # 本地 AI 密钥配置（严禁入库；示例文件 ai-config.local.json.example 保留）
 ai-config.local.json
 **/ai-config.local.json
+
+# 本地签名口令（严禁入库；模板 signing/signing-config.example.json 保留）
+/signing/signing-config.local.json
+/.build-profile.json5.signed.backup

@@ -144,7 +144,36 @@ cp entry/src/main/resources/rawfile/ai-config.local.json.example \
 > **安全说明**：`ai-config.local.json` 已加入 `.gitignore`，不会进入版本库。
 > 源码中不含任何明文密钥。生产环境建议改为服务端代理，仅需替换 `baseUrl` 配置项。
 
-### 4.3 编译
+### 4.3 构建签名包
+
+仓库中的 `build-profile.json5` **不含任何签名口令**（`signingConfigs` 为空），
+因此克隆后可直接编译出**未签名**包；要产出自用的**已签名**包，二选一：
+
+**方式一：脚本注入（推荐，构建后自动还原配置）**
+
+```bash
+# 1) 准备本地私有签名配置（该文件已被 .gitignore 忽略）
+cp signing/signing-config.example.json signing/signing-config.local.json
+# 编辑 signing-config.local.json，填入你自己的证书路径与口令
+
+# 2) 设置 hvigor 路径并构建
+set HVIGOR_BAT=<DevEco Studio>\tools\hvigor\bin\hvigorw.bat
+node scripts/build-signed.mjs
+# 可选：node scripts/build-signed.mjs --buildMode release
+```
+
+脚本流程：读取本地签名 → 临时注入 `build-profile.json5` → 执行 hvigor →
+**无论成功失败都还原配置**（并在下次启动时检测上次异常残留）。
+
+**方式二：DevEco Studio 内配置**
+
+`File > Project Structure > Signing Configs` 勾选自动生成或手动填写，
+IDE 会在本地补全 `signingConfigs`（此改动仅存在于你的工作区，不应提交）。
+
+> **安全说明**：签名口令只存在于 `signing/signing-config.local.json`（已 gitignore）。
+> 证书文件（`.p12` / `.p7b` / `.cer`）同样不入库。
+
+### 4.4 编译（未签名）
 
 ```bash
 # Windows
@@ -155,15 +184,16 @@ set PATH=%JAVA_HOME%\bin;%PATH%      # 打包步骤依赖 java 在 PATH 中
 hvigorw assembleHap --mode module -p product=default -p buildMode=debug
 ```
 
-产物：`entry/build/default/outputs/default/entry-default-signed.hap`
+产物：`entry/build/default/outputs/default/entry-default-unsigned.hap`
+（未配置签名时 hvigor 不会产出 signed 包，属预期行为）
 
-### 4.4 运行
+### 4.5 运行
 
 1. DevEco Studio 打开项目，等待同步完成
 2. 连接 HarmonyOS 真机或启动模拟器
 3. 点击 Run，或安装上面的 HAP
 
-### 4.5 测试
+### 4.6 测试
 
 ```bash
 # 测试用例位于 entry/src/ohosTest/ets/test/AiPipelineTest.ets（12 个用例）
@@ -233,7 +263,25 @@ entry/src/ohosTest/ets/test/
 
 ---
 
-## 七、文档索引
+## 七、凭据与安全
+
+本仓库**不包含任何签名口令、证书文件或 API Key**，具体处置如下：
+
+| 凭据 | 存放位置 | 是否入库 |
+|---|---|---|
+| 签名口令 | `signing/signing-config.local.json` | ❌ 已 gitignore |
+| 签名证书 `.p12/.p7b/.cer` | 项目外（本地路径由上面文件指向） | ❌ 已 gitignore |
+| 百炼 API Key | `rawfile/ai-config.local.json` 或应用 Preferences | ❌ 已 gitignore |
+| AI 密钥模板 | `rawfile/ai-config.local.json.example` | ✅ 可入库 |
+| 签名配置模板 | `signing/signing-config.example.json` | ✅ 可入库 |
+
+> **关于历史版本**：早期提交曾把签名口令写在 `build-profile.json5` 中，
+> 已通过重写历史彻底移除，并对全部提交校验过不含口令。
+> 若你曾使用过该密钥库，**建议轮换签名口令并重新生成证书**。
+
+---
+
+## 八、文档索引
 
 | 文档 | 内容 |
 |---|---|
@@ -243,7 +291,7 @@ entry/src/ohosTest/ets/test/
 
 ---
 
-## 八、已知局限
+## 九、已知局限
 
 | 局限 | 说明 |
 |---|---|

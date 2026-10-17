@@ -1,0 +1,15 @@
+{
+  "_说明": "复制本文件为同目录下的 signing-config.local.json 并填入你自己的签名信息。",
+  "_安全": "signing-config.local.json 已被 .gitignore 忽略，不会进入版本库。证书文件（.p12/.p7b/.cer）本身也不应入库。",
+  "name": "default",
+  "type": "HarmonyOS",
+  "material": {
+    "storeFile": "D:/path/to/your.p12",
+    "storePassword": "<你的密钥库口令>",
+    "keyAlias": "<你的密钥别名>",
+    "keyPassword": "<你的密钥口令>",
+    "signAlg": "SHA256withECDSA",
+    "profile": "D:/path/to/your.p7b",
+    "certpath": "D:/path/to/your.cer"
+  }
+}
