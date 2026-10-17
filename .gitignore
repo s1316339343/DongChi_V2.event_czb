@@ -32,3 +32,8 @@ ai-config.local.json
 # 本地签名口令（严禁入库；模板 signing/signing-config.example.json 保留）
 /signing/signing-config.local.json
 /.build-profile.json5.signed.backup
+
+# 工具索引缓存与 Python 缓存（含本机路径，不应入库）
+.atomcode/
+__pycache__/
+*.pyc
