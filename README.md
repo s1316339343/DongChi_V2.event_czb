@@ -304,3 +304,15 @@ entry/src/ohosTest/ets/test/
 | 长列表未虚拟化 | 收藏/记录/冰箱页使用 `Scroll`+`ForEach` |
 
 详见 [技术文档.md](技术文档.md) 第六章。
+---
+
+## 十、开源许可
+
+本项目以 [MIT License](LICENSE) 开源，可自由用于学习、教学与二次开发。
+
+欢迎提交 Issue 反馈问题；若用于竞赛或其他公开场合，请注明来源。
+
+### 致谢
+
+- [HarmonyOS](https://developer.huawei.com/) 提供开发框架与工具链
+- [阿里云百炼](https://bailian.console.aliyun.com/) 提供大模型推理能力（通义千问）
