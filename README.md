@@ -128,6 +128,17 @@
 git clone https://github.com/s1316339343/dongchi.git
 cd dongchi
 ```
+
+> 若所在网络无法访问 GitHub 的 443 端口（HTTPS 超时），可改用 SSH 通道：
+> `git clone git@github.com:s1316339343/dongchi.git`。
+> 也可在 `~/.ssh/config` 中配置 GitHub 官方备用入口，无需代理：
+>
+> ```text
+> Host github.com
+>     HostName ssh.github.com
+>     Port 443
+>     User git
+> ```
 ### 4.2 配置云端 AI（可选）
 
 不配置时 App **全功能可用**，仅推荐理由退化为通用文案。
