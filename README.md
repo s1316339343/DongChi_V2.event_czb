@@ -2,6 +2,8 @@
 
 > 第九届传智杯全国大学生数智创新与AI应用大赛 · **AI 创新应用挑战赛（个人赛）** 参赛作品
 > 平台：HarmonyOS 6.0.2（API 22）｜语言：ArkTS / ArkUI
+>
+> 代码仓库：<https://github.com/s1316339343/dongchi>　｜　许可证：MIT
 
 ---
 
@@ -122,6 +124,10 @@
 | Node.js | 24.x |
 | JDK | 随 DevEco 提供的 JBR（OpenJDK 21） |
 
+```bash
+git clone https://github.com/s1316339343/dongchi.git
+cd dongchi
+```
 ### 4.2 配置云端 AI（可选）
 
 不配置时 App **全功能可用**，仅推荐理由退化为通用文案。
