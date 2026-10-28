@@ -37,6 +37,27 @@ interface UserPreferenceProfile {
 
 // ========== 推荐服务 ==========
 
+/**
+ * 推荐管道的阶段，供 UI 做「思考过程可视化」。
+ * 顺序就是真实执行顺序：本地检索 → 云端重排 → 结构校验（失败则降级）。
+ */
+export enum RecommendStage {
+  /** 本地结构化检索：忌口/预算硬过滤 + 多维打分，产出必然合规的候选 */
+  RETRIEVE = 0,
+  /** 云端语义重排：模型只在候选集合内排序并写个性化理由 */
+  RERANK = 1,
+  /** 结构校验：白名单 + 二次忌口 + 分数夹取 + 数值回填本地 */
+  VALIDATE = 2,
+  /** 降级：AI 不可用，回退本地引擎（功能不中断） */
+  FALLBACK = 3
+}
+
+/** 阶段回调：stage 为当前阶段，detail 是给用户看的一句话说明 */
+export type StageListener = (stage: RecommendStage, detail: string) => void;
+
+/** 流式增量回调：模型每吐出一段文本触发一次 */
+export type TokenListener = (delta: string) => void;
+
 export class RecommendService {
   // "换一批"偏移计数器（每个优先级独立维护，切换标签时不互相干扰）
   public static refreshOffsetMap: Record<string, number> = {
@@ -138,7 +159,10 @@ export class RecommendService {
 
   /**
    * 返回推荐结果及来源标识
-   * 优先调用 AI 模型（Ollama），失败时自动降级本地推荐引擎
+   * 优先调用 AI 模型（云端重排），失败时自动降级本地推荐引擎
+   *
+   * @param onStage 阶段回调（可空）。传了就按 RETRIEVE→RERANK→VALIDATE/FALLBACK 逐段汇报
+   * @param onToken 流式增量回调（可空）。传了就启用真流式，UI 可实时显示模型输出
    */
   static async getRecommendations(
     context: common.Context,
@@ -149,7 +173,9 @@ export class RecommendService {
     ingredients: string[] = [],
     hasNoIngredients: boolean = false,
     priority: string = 'balanced',
-    userNote: string = ''
+    userNote: string = '',
+    onStage: StageListener | null = null,
+    onToken: TokenListener | null = null
   ): Promise<RecommendResult> {
     // P1：加载用户偏好画像（收藏 + 历史决策），用于本地加分与云端重排的上下文
     const profile = await RecommendService.loadProfile(context);
@@ -158,10 +184,17 @@ export class RecommendService {
 
     // ===== 第一段：本地结构化检索（确定性，硬约束在此收敛） =====
     const retrieved = RecommendService.retrieveCandidates(conditions, priority, profile);
+    if (onStage !== null) {
+      onStage(RecommendStage.RETRIEVE,
+        '从 ' + LOCAL_DISHES.length + ' 道菜中筛出 ' + retrieved.length + ' 道合规候选');
+    }
 
     // 检索结果为空说明条件过严，直接降级到本地宽松挑选
     if (retrieved.length === 0) {
       const local = RecommendService.pickAndExplain(retrieved, conditions, priority, profile);
+      if (onStage !== null) {
+        onStage(RecommendStage.FALLBACK, '没有同时满足全部条件的菜品，已放宽口味方向');
+      }
       return {
         dishes: local,
         isLocal: true,
@@ -175,6 +208,10 @@ export class RecommendService {
     const configured = await CloudAiService.isConfigured();
     if (!enabled || !configured) {
       const local = RecommendService.pickAndExplain(retrieved, conditions, priority, profile);
+      if (onStage !== null) {
+        onStage(RecommendStage.FALLBACK,
+          enabled ? '尚未配置云端 AI 密钥' : '云端 AI 已在设置中关闭');
+      }
       return {
         dishes: local,
         isLocal: true,
@@ -187,9 +224,14 @@ export class RecommendService {
       const candidates = RecommendService.toCandidateList(retrieved, conditions);
       const summary = RecommendService.buildProfileSummary(profile);
 
+      if (onStage !== null) {
+        onStage(RecommendStage.RERANK,
+          'AI 正在 ' + candidates.length + ' 道候选内重排并撰写理由');
+      }
+
       await CloudAiService.init(context);
       const rerank: RerankResult = await CloudAiService.rerankCandidates(
-        conditions, candidates, summary, userNote);
+        conditions, candidates, summary, userNote, onToken);
 
       if (!rerank.ok || rerank.items.length === 0) {
         throw new Error(rerank.failReason.length > 0 ? rerank.failReason : '云端重排未返回有效结果');
@@ -199,6 +241,10 @@ export class RecommendService {
       if (dishes.length === 0) {
         throw new Error('云端重排结果未能匹配到任何候选菜品');
       }
+      if (onStage !== null) {
+        onStage(RecommendStage.VALIDATE,
+          '校验通过 ' + dishes.length + ' 项 · 时间/成本/食材取自本地数据');
+      }
       // 成功：清空降级提示标记，让下次真失败时仍能提示
       CloudAiService.resetDegradeNotice();
       return { dishes: dishes, isLocal: false } as RecommendResult;
@@ -207,6 +253,9 @@ export class RecommendService {
       const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
       console.error('云端 AI 重排失败，降级本地排序', errMsg);
       const local = RecommendService.pickAndExplain(retrieved, conditions, priority, profile);
+      if (onStage !== null) {
+        onStage(RecommendStage.FALLBACK, errMsg);
+      }
       return {
         dishes: local,
         isLocal: true,

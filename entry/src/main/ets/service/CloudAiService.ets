@@ -100,6 +100,12 @@ export interface RerankResult {
   failReason: string;
 }
 
+/**
+ * 流式增量回调：模型每吐出一段文本就对调用方触发一次。
+ * UI 用它把"AI 正在生成"变成用户可见的实时过程，而不是一个转圈的菊花。
+ */
+export type DeltaListener = (delta: string) => void;
+
 /** 设置页使用的 AI 配置 */
 export interface CloudAiConfig {
   apiKey: string;
@@ -127,6 +133,8 @@ interface ChatRequestBody {
   messages: ChatMessage[];
   temperature: number;
   max_tokens: number;
+  /** true 时服务端以 SSE 逐段返回（stream: true） */
+  stream?: boolean;
   response_format?: ResponseFormat;
 }
 
@@ -150,6 +158,19 @@ interface ChatResponse {
 interface ChatError {
   message?: string;
   code?: string;
+}
+
+// ===== 流式（SSE）响应结构：choices[0].delta.content =====
+interface DeltaContent {
+  content?: string;
+}
+
+interface DeltaChoice {
+  delta?: DeltaContent;
+}
+
+interface StreamChatResponse {
+  choices?: DeltaChoice[];
 }
 
 /** ai-config.local.json 的结构 */
@@ -356,12 +377,14 @@ export class CloudAiService {
    * @param candidates 本地检索层产出的合规候选
    * @param profileSummary 用户画像摘要（自然语言，含收藏与近期偏好）
    * @param userNote 用户自由补充的处境描述（可为空）
+   * @param onDelta 传非空则启用流式：模型每吐一段就回调一次，UI 可实时展示
    */
   static async rerankCandidates(
     conditions: RecommendConditions,
     candidates: CandidateDish[],
     profileSummary: string,
-    userNote: string = ''
+    userNote: string = '',
+    onDelta: DeltaListener | null = null
   ): Promise<RerankResult> {
     if (candidates.length === 0) {
       return { ok: false, items: [], failReason: '候选菜品为空' } as RerankResult;
@@ -376,12 +399,20 @@ export class CloudAiService {
     const userPrompt = CloudAiService.buildRerankPrompt(conditions, candidates, profileSummary, userNote);
 
     let lastErr = '';
-    // 最多两次尝试：第一次解析/校验失败后带上更严格的提示重试
+    // 最多两次尝试：第一次流式（实时可见），失败后第二次改为一次性请求（更稳，
+    // 也避免"流式通道本身不可用"时把整条 AI 能力判死）
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         // 第二次重试降温，降低再次跑偏的概率
         const temperature = attempt === 0 ? 0.3 : 0.1;
-        const raw = await CloudAiService.callChat(apiKey, model, systemPrompt, userPrompt, 900, temperature);
+        const useStream: boolean = onDelta !== null && attempt === 0;
+        let raw: string;
+        if (useStream && onDelta !== null) {
+          raw = await CloudAiService.callChatStream(
+            apiKey, model, systemPrompt, userPrompt, 900, temperature, onDelta);
+        } else {
+          raw = await CloudAiService.callChat(apiKey, model, systemPrompt, userPrompt, 900, temperature);
+        }
         const parsed = CloudAiService.parseRerank(raw);
         if (parsed === null) {
           lastErr = '返回内容不是合法 JSON';
@@ -674,6 +705,212 @@ export class CloudAiService {
   }
 
   // ==================== 底层 HTTP ====================
+
+  /**
+   * 单轮流式对话（SSE）：把模型输出按增量回调给调用方，最后返回完整文本。
+   *
+   * 为什么值得单独实现一套：真正的流式把"首字延迟"从「整段生成完」降到「第一个 token」，
+   * 用户看到的是模型在一步步写，而不是一个不知道要转多久的菊花灯。
+   *
+   * 关键实现点：
+   * - requestInStream + on('dataReceive') 拿到的是原始 ArrayBuffer；
+   * - TextDecoder 必须开 stream 模式：一个 UTF-8 汉字可能被拆进两个 chunk，否则必乱码；
+   * - SSE 按行解析，`data:` 后面可能是 JSON，也可能是 `[DONE]`；
+   * - 非 200 的响应体不是 SSE，单独收集后交给 friendlyError 翻译。
+   */
+  private static callChatStream(
+    apiKey: string,
+    model: string,
+    systemPrompt: string,
+    userPrompt: string,
+    maxTokens: number,
+    temperature: number,
+    onDelta: DeltaListener
+  ): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      CloudAiService.getBaseUrl().then((baseUrl) => {
+        const url = baseUrl + '/chat/completions';
+        const httpRequest = http.createHttp();
+        const messages: ChatMessage[] = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ];
+        const requestBody: ChatRequestBody = {
+          model: model,
+          messages: messages,
+          temperature: temperature,
+          max_tokens: maxTokens,
+          stream: true
+        };
+        const bodyStr = JSON.stringify(requestBody);
+        const decoder = util.TextDecoder.create('utf-8');
+        const decodeOptions: util.DecodeToStringOptions = { stream: true };
+
+        let full: string = '';
+        let sseBuffer: string = '';
+        let nonSseBody: string = '';
+        let ended: boolean = false;
+        let gotCode: number = 0;
+        let codeKnown: boolean = false;
+        let settled: boolean = false;
+
+        const settle = (err: Error | null): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          try {
+            httpRequest.off('dataReceive');
+            httpRequest.off('dataEnd');
+            httpRequest.off('headersReceive');
+          } catch (e) {
+            // 取消订阅失败不影响主流程
+          }
+          httpRequest.destroy();
+          if (err !== null) {
+            reject(err);
+          } else {
+            resolve(full);
+          }
+        };
+
+        const maybeSettle = (): void => {
+          if (settled) {
+            return;
+          }
+          if (codeKnown && gotCode !== 200) {
+            const detail = nonSseBody.length > 0 ? nonSseBody : '流式响应失败';
+            settle(new Error('HTTP ' + gotCode + '：' + detail));
+            return;
+          }
+          if (!ended) {
+            return;
+          }
+          if (full.length > 0) {
+            settle(null);
+            return;
+          }
+          // 部分网关会忽略 stream:true 直接返回整段 JSON，这里兼容掉，
+          // 避免"服务端不支持流式"被误判成 AI 不可用
+          const whole = CloudAiService.tryWholeResponse(nonSseBody);
+          if (whole !== null) {
+            full = whole;
+            onDelta(whole);
+            settle(null);
+            return;
+          }
+          if (nonSseBody.length > 0) {
+            settle(new Error('HTTP 响应异常：' + nonSseBody));
+          } else {
+            settle(new Error('模型返回内容为空'));
+          }
+        };
+
+        const handleSseLine = (line: string): void => {
+          const trimmed = line.trim();
+          if (trimmed.length === 0 || trimmed.indexOf('data:') !== 0) {
+            return;
+          }
+          const payload = trimmed.substring(5).trim();
+          if (payload.length === 0 || payload === '[DONE]') {
+            return;
+          }
+          try {
+            const parsed = JSON.parse(payload) as StreamChatResponse;
+            const choices = parsed.choices;
+            if (choices === undefined || choices.length === 0) {
+              return;
+            }
+            const delta = choices[0].delta;
+            if (delta === undefined || delta.content === undefined || delta.content.length === 0) {
+              return;
+            }
+            full += delta.content;
+            onDelta(delta.content);
+          } catch (e) {
+            // 单行解析失败不应中断整条流
+          }
+        };
+
+        const feed = (text: string): void => {
+          if (full.length === 0 && text.indexOf('data:') < 0) {
+            nonSseBody += text;
+          }
+          sseBuffer += text;
+          let idx = sseBuffer.indexOf('\n');
+          while (idx >= 0) {
+            handleSseLine(sseBuffer.substring(0, idx));
+            sseBuffer = sseBuffer.substring(idx + 1);
+            idx = sseBuffer.indexOf('\n');
+          }
+        };
+
+        httpRequest.on('headersReceive', () => {
+          // 拿到响应即开始收数据，头部无需额外处理
+        });
+        httpRequest.on('dataReceive', (chunk: ArrayBuffer) => {
+          try {
+            const bytes: Uint8Array = new Uint8Array(chunk);
+            feed(decoder.decodeToString(bytes, decodeOptions));
+          } catch (e) {
+            // 解码异常仅丢弃该分片
+          }
+        });
+        httpRequest.on('dataEnd', () => {
+          ended = true;
+          maybeSettle();
+        });
+
+        httpRequest.requestInStream(
+          url,
+          {
+            method: http.RequestMethod.POST,
+            header: {
+              'Content-Type': 'application/json',
+              'Accept': 'text/event-stream',
+              'Authorization': 'Bearer ' + apiKey
+            },
+            extraData: bodyStr,
+            expectDataType: http.HttpDataType.STRING,
+            connectTimeout: CONNECT_TIMEOUT_MS,
+            readTimeout: READ_TIMEOUT_MS
+          },
+          (err: Error, code: number) => {
+            if (err) {
+              settle(new Error('网络请求失败：' + JSON.stringify(err)));
+              return;
+            }
+            gotCode = code;
+            codeKnown = true;
+            maybeSettle();
+          }
+        );
+      }).catch((e: Error) => {
+        reject(e);
+      });
+    });
+  }
+
+  /** 兼容"服务端忽略 stream 参数、直接返回整段 JSON"的情况 */
+  private static tryWholeResponse(body: string): string | null {
+    if (body.length === 0) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(body) as ChatResponse;
+      const choices = parsed.choices;
+      if (choices === undefined || choices.length === 0) {
+        return null;
+      }
+      const message = choices[0].message;
+      if (message === undefined || message.content === undefined) {
+        return null;
+      }
+      return message.content;
+    } catch (e) {
+      return null;
+    }
+  }
 
   /** 单轮对话，返回模型文本内容 */
   private static callChat(

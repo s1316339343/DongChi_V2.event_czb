@@ -2,7 +2,7 @@ import router from '@ohos.router';
 // import { common } from '@kit.AbilityKit';  // [单机化] 不再需要 openLink 等联网功能
 // import bundleManager from '@ohos.bundle.bundleManager';  // [单机化] 移除第三方应用检测
 import { promptAction } from '@kit.ArkUI';
-import { RecommendService } from '../service/RecommendService';
+import { RecommendService, RecommendStage } from '../service/RecommendService';
 import { AiDish } from '../service/DishTypes';
 import { DbService, DecisionRecord, FavoriteDish } from '../service/DbService';
 import { LOCAL_DISHES } from '../service/LocalDishes';
@@ -129,6 +129,18 @@ struct Recommend {
   /** 补充说明输入区是否展开 */
   @State noteExpanded: boolean = false;
 
+  // ====== AI 决策过程可视化（三阶段 + 流式输出） ======
+  /** 当前阶段：1 本地检索 / 2 云端重排 / 3 结构校验；0 表示尚未开始 */
+  @State stageCode: number = 0;
+  /** 当前阶段的一句话说明（给用户看的"正在做什么"） */
+  @State stageDetail: string = '';
+  /** 当前阶段是否已失败（用于把 ⏳ 变成 ⚠️，而不是假装成功） */
+  @State stageFailed: boolean = false;
+  /** 模型流式输出的实时文本（只保留尾部，避免状态无限增长） */
+  @State aiStreamText: string = '';
+  /** 已接收字符数，给用户"模型还在写"的量化感知 */
+  @State aiStreamChars: number = 0;
+
   // 收藏状态映射
   @State favoritedMap: Record<string, boolean> = {};
   // 当前决策记录ID（保存后赋值，用于收藏关联）
@@ -254,6 +266,12 @@ struct Recommend {
   async fetchAIRecommendations(priority?: string, resetOffset: boolean = false): Promise<void> {
     this.isLoading = true;
     this.animTrigger = false;
+    // 重置"决策过程可视化"状态：每次重新推荐都从第 ① 步开始
+    this.stageCode = 1;
+    this.stageFailed = false;
+    this.stageDetail = '正在本地筛选符合忌口与预算的候选…';
+    this.aiStreamText = '';
+    this.aiStreamChars = 0;
     if (priority) {
       this.priorityActive = priority;
     }
@@ -273,7 +291,13 @@ struct Recommend {
     try {
       const result = await RecommendService.getRecommendations(
         getContext(this), this.category, this.time, this.budget, this.diet,
-        this.ingredients, this.hasNoIngredients, this.priorityActive, this.userNote
+        this.ingredients, this.hasNoIngredients, this.priorityActive, this.userNote,
+        (stage: RecommendStage, detail: string): void => {
+          this.onStageChange(stage, detail);
+        },
+        (delta: string): void => {
+          this.onAiToken(delta);
+        }
       );
 
       this.isLocalRecommend = result.isLocal;
@@ -329,6 +353,35 @@ struct Recommend {
       // 刷新条件摘要（食材数量等可能已变化）
       this.conditionSummary = this.buildConditionSummary();
     }
+  }
+
+  /**
+   * 管道阶段变化 → 更新三段进度
+   *
+   * 注意：FALLBACK 不改 stageCode，只把当前步骤标记为"失败"。
+   * 否则界面会在降级时把三个步骤全画成 ✅，等于对用户撒谎。
+   */
+  onStageChange(stage: RecommendStage, detail: string): void {
+    if (stage === RecommendStage.FALLBACK) {
+      this.stageFailed = true;
+    } else {
+      this.stageCode = stage + 1;
+      this.stageFailed = false;
+    }
+    this.stageDetail = detail;
+  }
+
+  /**
+   * 流式增量 → 追加到「模型实时输出」
+   * 只保留尾部 800 字：推荐理由总长有限，不需要为了一屏文字把状态撑爆。
+   */
+  onAiToken(delta: string): void {
+    let next: string = this.aiStreamText + delta;
+    if (next.length > 800) {
+      next = next.substring(next.length - 800);
+    }
+    this.aiStreamText = next;
+    this.aiStreamChars += delta.length;
   }
 
   /**
@@ -720,23 +773,85 @@ struct Recommend {
         .margin({ bottom: 12 })
       }
 
-      // 加载中状态
+      // 加载中状态：三段式「决策过程」可视化（替代原来的单个菊花灯）
       if (this.isLoading) {
         Column() {
-          LoadingProgress()
-            .width(48)
-            .height(48)
-            .color($r('app.color.app_primary'))
-            .margin({ bottom: 16 })
+          Column() {
+            Row() {
+              Text('AI 决策过程')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_primary'))
 
-          Text('AI正在为你思考推荐...')
-            .fontSize(15)
-            .fontColor($r('app.color.text_secondary'))
+              Blank()
+
+              if (!this.stageFailed && this.stageCode > 0) {
+                LoadingProgress()
+                  .width(14)
+                  .height(14)
+                  .color($r('app.color.app_primary'))
+              }
+            }
+            .width('100%')
+            .margin({ bottom: 8 })
+            .alignItems(VerticalAlign.Center)
+
+            this.stageItem(1, '本地检索', '忌口 / 预算硬过滤 + 多维加权打分')
+            this.stageItem(2, '云端重排', '只在候选集合内排序，从架构上杜绝幻觉')
+            this.stageItem(3, '结构校验', '白名单 + 二次忌口 + 数值回填本地')
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+          .backgroundColor(Color.White)
+          .borderRadius(14)
+
+          // 当前阶段的一句话说明
+          if (this.stageDetail.length > 0) {
+            Text(this.stageDetail)
+              .fontSize(12)
+              .fontColor(this.stageFailed ? '#B8860B' : $r('app.color.text_secondary'))
+              .margin({ top: 10 })
+              .width('100%')
+              .textAlign(TextAlign.Center)
+          }
+
+          // 模型流式输出的实时内容
+          if (this.aiStreamChars > 0) {
+            Column() {
+              Row() {
+                Text('✦ 模型实时输出')
+                  .fontSize(11)
+                  .fontColor($r('app.color.app_primary'))
+                Blank()
+                Text(this.aiStreamChars + ' 字')
+                  .fontSize(10)
+                  .fontColor($r('app.color.text_light'))
+              }
+              .width('100%')
+              .margin({ bottom: 6 })
+
+              Scroll() {
+                Text(this.aiStreamText + '▍')
+                  .fontSize(10)
+                  .fontColor('#5B6470')
+                  .lineHeight(15)
+                  .width('100%')
+              }
+              .height(110)
+              .width('100%')
+              .scrollBar(BarState.Off)
+            }
+            .width('100%')
+            .padding(12)
+            .margin({ top: 10 })
+            .backgroundColor('#F6F7F9')
+            .borderRadius(12)
+          }
         }
         .width('100%')
         .height('60%')
+        .padding({ left: 20, right: 20 })
         .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
       } else {
         // 菜品推荐列表
         Scroll() {
@@ -806,6 +921,50 @@ struct Recommend {
     .height('100%')
     .backgroundColor($r('app.color.app_bg'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+  }
+
+  /**
+   * 单个阶段行：已完成 ✅ / 进行中 ⏳ / 未开始 ○ / 此处降级 ⚠️
+   */
+  @Builder
+  stageItem(step: number, title: string, desc: string) {
+    Row() {
+      Text(this.stageIcon(step))
+        .fontSize(15)
+        .width(24)
+
+      Column() {
+        Text(title)
+          .fontSize(13)
+          .fontWeight(this.stageCode === step && !this.stageFailed ? FontWeight.Medium : FontWeight.Regular)
+          .fontColor(this.stageCode > step ? $r('app.color.text_secondary') : $r('app.color.text_primary'))
+
+        Text(desc)
+          .fontSize(10)
+          .fontColor($r('app.color.text_light'))
+          .margin({ top: 1 })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .padding({ top: 5, bottom: 5 })
+    .alignItems(VerticalAlign.Center)
+    .opacity(this.stageCode >= step ? 1 : 0.45)
+  }
+
+  /** 阶段图标：⚠️ 只出现在真正降级的那一步 */
+  stageIcon(step: number): string {
+    if (this.stageFailed && this.stageCode === step) {
+      return '⚠️';
+    }
+    if (this.stageCode > step) {
+      return '✅';
+    }
+    if (this.stageCode === step) {
+      return '⏳';
+    }
+    return '○';
   }
 
   @Builder
