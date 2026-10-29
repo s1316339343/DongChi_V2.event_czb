@@ -261,7 +261,7 @@ struct Recommend {
   }
 
   /**
-   * 调用 DeepSeek API 获取 AI 推荐（失败后自动降级为本地推荐）
+   * 调用推荐管道获取结果（云端重排成功即用 AI 结果，任一步失败自动降级本地引擎）
    */
   async fetchAIRecommendations(priority?: string, resetOffset: boolean = false): Promise<void> {
     this.isLoading = true;

@@ -1,29 +1,11 @@
-// ========== AI 推荐联网模块（Ollama，OpenAI 兼容接口）==========
-// AI 接入：由 CloudAiService 统一管理（云端大模型 + 检索增强重排 + 自动降级）
-// （持久化 + 局域网自动发现 + 地址失效自愈），见 AiModelService.ets
+// ========== 推荐编排：三段式管道（检索 → 重排 → 校验/降级）==========
+// 本文件只负责"编排"与"本地确定性检索"；所有云端调用细节（提示词、流式、校验闸门）
+// 都在 CloudAiService 里，两者通过 CandidateDish / RerankItem 这类显式结构通信。
 import { common } from '@kit.AbilityKit';
 import { AiDish, LocalDish, RecommendConditions, RecommendResult, ScoredDish, CATEGORY_NAMES, TIME_LABELS, BUDGET_LABELS, DIET_LABELS } from './DishTypes';
 import { LOCAL_DISHES } from './LocalDishes';
 import { CloudAiService, CandidateDish, RerankItem, RerankResult } from './CloudAiService';
 import { DbService } from './DbService';
-
-// ========== 模型 API 类型定义 ==========
-
-interface DeepSeekMessage {
-  content: string;
-}
-
-interface DeepSeekChoice {
-  message: DeepSeekMessage;
-}
-
-interface DeepSeekResponse {
-  choices: DeepSeekChoice[];
-}
-
-interface ParsedDishData {
-  dishes: object[];
-}
 
 // ========== 用户偏好画像（P1：个性化反馈闭环）==========
 // 从收藏 + 最近决策记录聚合而来，用于注入 AI prompt 与本地推荐打分
@@ -591,37 +573,13 @@ export class RecommendService {
     };
   }
 
-  // ========== 模型 API 相关方法（LM Studio / llama.cpp OpenAI 兼容接口）==========
-
-  /**
-   * 构建 AI Prompt
-   */
-  // ========== 响应解析与失败分类 ==========
-
-  /**
-   * 解析 API 返回的 JSON 数据
-   */
-  /**
-   * 将 AI 失败原因分类为用户可读的中文描述
-   */
-  /**
-   * 从字符串中提取价格数字（如 "8元" → 8，"约15元" → 15），失败返回 0
-   */
-  /**
-   * 清洗字符串字段：null/undefined/"null"/"undefined"/"-" 等异常值统一返回空字符串
-   */
-  /**
-   * 安全地将字段转为价格数字，失败返回 0（页面显示为 "-"）
-   */
-  /**
-   * 规范化单个 AI 返回菜品：
-   * - 清洗字符串字段，杜绝 null/"-" 等异常值出现在 UI
-   * - 校验价格字段：cost 与 cookCost 互相同步；无法得到有效价格时置为 0 / "-"
-   */
-  /**
-   * 批量规范化 AI 返回的菜品列表，并剔除没有菜名的条目
-   */
-  // ========== AI 路径统一后校验（P0：与本地路径同一套硬性约束）==========
+  // 说明：早期"一次裸调用"版本在这片位置有 buildPrompt / parseAiResponse / normalizeDish
+  // 等方法，它们把模型吐出的菜名与价格原样信以为真。改成「检索增强 + 受约束重排」后
+  // 这些职责被拆走，空壳注释于本次清理中删除，避免误导阅读者以为代码丢了：
+  //   提示词构造 → CloudAiService.buildSystemPrompt / buildRerankPrompt
+  //   响应解析   → CloudAiService.extractJsonObject（括号配对扫描）
+  //   字段校验   → CloudAiService.validateRerank（白名单 + 二次忌口 + 分数夹取）
+  //   数值填充   → 本文件 mergeRerankWithLocal（一律取自本地数据）
 
   // ========== 本地推荐引擎 ==========
 

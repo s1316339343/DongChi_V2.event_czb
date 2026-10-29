@@ -105,7 +105,7 @@ struct Profile {
               params: {}
             });
           })
-          this.menuItem('🤖', 'AI 模型设置', '配置 Ollama 模型服务，一次配置长期生效', () => {
+          this.menuItem('🤖', 'AI 能力设置', '配置云端大模型（阿里云百炼），可随时关闭', () => {
             router.pushUrl({
               url: 'pages/AiSettings',
               params: {}
@@ -117,9 +117,10 @@ struct Profile {
               buttons: [{ text: '确定', color: $r('app.color.app_primary') }]
             });
           })
-          this.menuItem('📖', '关于懂吃', 'v1.1.0', () => {
+          this.menuItem('📖', '关于懂吃', 'v2.0.0', () => {
             promptAction.showDialog({
-              message: '目前处于开发V1.1.0阶段，仅为本地使用，暂无联网功能，后续会继续开发，感谢使用',
+              message: '懂吃 v2.0.0\n检索增强的饮食决策系统：本地确定性检索负责硬约束，云端大模型只做候选内排序与理由生成；' +
+                '未配置 Key 或断网时自动降级本地引擎，功能不中断。',
               buttons: [{ text: '确定', color: $r('app.color.app_primary') }]
             });
           })

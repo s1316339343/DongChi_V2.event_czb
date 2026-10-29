@@ -3,7 +3,7 @@
 > 第九届传智杯全国大学生数智创新与AI应用大赛 · **AI 创新应用挑战赛（个人赛）** 参赛作品
 > 平台：HarmonyOS 6.0.2（API 22）｜语言：ArkTS / ArkUI
 >
-> 代码仓库：<https://github.com/s1316339343/dongchi>　｜　许可证：MIT
+> 代码仓库：<https://github.com/s1316339343/DongChi_V2.event_czb>　｜　许可证：MIT
 
 ---
 
@@ -57,7 +57,7 @@
 │   · 忌口一票否决（不吃辣/不吃香菜/不吃海鲜/素食）          │
 │   · 预算硬过滤                                            │
 │   · 多维加权评分（分类/时间/预算/食材匹配度）              │
-│   500 道菜 ──▶ 约 12 个必然合规的候选                      │
+│   498 道菜 ──▶ 约 12 个必然合规的候选                      │
 └───────────────────────┬─────────────────────────────────┘
                         │
 ┌───────────────────────▼─────────────────────────────────┐
@@ -125,12 +125,12 @@
 | JDK | 随 DevEco 提供的 JBR（OpenJDK 21） |
 
 ```bash
-git clone https://github.com/s1316339343/dongchi.git
-cd dongchi
+git clone https://github.com/s1316339343/DongChi_V2.event_czb.git
+cd DongChi_V2.event_czb
 ```
 
 > 若所在网络无法访问 GitHub 的 443 端口（HTTPS 超时），可改用 SSH 通道：
-> `git clone git@github.com:s1316339343/dongchi.git`。
+> `git clone git@github.com:s1316339343/DongChi_V2.event_czb.git`。
 > 也可在 `~/.ssh/config` 中配置 GitHub 官方备用入口，无需代理：
 >
 > ```text
@@ -246,7 +246,7 @@ entry/src/main/ets/
 │   ├── RecommendService.ets★ 决策编排（三段式管道）
 │   ├── DbService.ets       relationalStore 数据访问
 │   ├── DishTypes.ets       类型与共享常量
-│   ├── LocalDishes.ets     500 道菜品库（4 个分片）
+│   ├── LocalDishes.ets     498 道菜品库（4 个分片）
 │   ├── DishDetailData.ets  498 道步骤与营养
 │   ├── IngredientCategories.ets 食材分类共享常量
 │   ├── TtsService.ets      语音播报
