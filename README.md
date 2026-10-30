@@ -5,6 +5,12 @@
 >
 > 代码仓库：<https://github.com/s1316339343/DongChi_V2.event_czb>　｜　许可证：MIT
 
+> **评委快速入口**
+> ① 只想看效果 → [4.1 直接装包体验（1 分钟）](#41-路径-a直接装包体验1-分钟)
+> ② 想看过程真实性和演进链路 → [RECONSTRUCTION.md](RECONSTRUCTION.md)
+> ③ 想看与 AI 的完整对话（逐轮原文） → [AI-PROMPTS/](AI-PROMPTS/README.md)
+> ④ 想看设计与取舍 → [技术文档.pdf](技术文档.pdf)
+
 ---
 
 ## 一、项目简介
@@ -112,36 +118,82 @@
 
 ---
 
-## 四、环境配置与复现指南
+## 四、10 分钟极速复现
 
-### 4.1 环境要求
+> 三条路径，按目的选一条即可：
+> **A → 只想看效果**（1 分钟，不装 IDE）｜**B → 想自己编译**（约 8 分钟）｜**C → 想跑测试**（约 5 分钟）
 
-| 项目 | 版本 |
-|---|---|
-| DevEco Studio | 6.1.1.280 及以上 |
-| HarmonyOS SDK | 6.0.2（API 22）及以上 |
-| hvigor | 6.24.2 |
-| Node.js | 24.x |
-| JDK | 随 DevEco 提供的 JBR（OpenJDK 21） |
+### 4.0 依赖清单（先看这个，决定你要不要装 IDE）
+
+| 类别 | 依赖 | 版本 | 说明 |
+|---|---|---|---|
+| 运行时 | **无第三方运行时依赖** | — | `entry/oh-package.json5` 的 `dependencies` 为空，全部逻辑基于 ArkTS 标准库与 HarmonyOS Kit |
+| 测试 | `@ohos/hypium` | 1.0.25 | 官方单测框架（devDependency） |
+| 测试 | `@ohos/hamock` | 1.0.0 | 官方 mock 框架（devDependency） |
+| 构建 | DevEco Studio | ≥ 6.1.1.280 | 提供 SDK / hvigor / JBR |
+| 构建 | HarmonyOS SDK | 6.0.2（**API 22**） | 见 [build-profile.json5](build-profile.json5) 的 `compileSdkVersion` |
+| 构建 | hvigor | 6.24.2 | 随 DevEco 附带 |
+| 构建 | Node.js | 24.x | 随 DevEco 附带（`tools\node`） |
+| 构建 | JDK | 21（DevEco 自带 JBR） | 打包步骤要求 `java` 在 PATH 中 |
+| 数据 | 菜品库 / 详情库 | — | 498 道，随源码内置，**无需下载** |
+| 可选 | 阿里云百炼 API Key | — | 不配置也能全功能使用（自动降级本地引擎） |
+
+> **为什么没有 `package.json` / `npm install`**：这是纯 ArkTS 工程，不是 Web 前端。
+> 依赖由 DevEco 的 SDK 与 ohpm 管理，`oh_modules/` 已在 `.gitignore` 中。
+
+### 4.1 路径 A：直接装包体验（1 分钟）
+
+1. 打开 [Releases](https://github.com/s1316339343/DongChi_V2.event_czb/releases/latest)，下载 `entry-default-signed.hap`；
+2. 连上 API 22+ 的鸿蒙设备或模拟器，执行 `hdc install entry-default-signed.hap`（或把包拖进设备窗口）；
+3. 打开「懂吃」，走一遍三问决策。
+
+> 装包不需要 SDK、不需要编译。**评委若只想看效果，走这条。**
+
+### 4.2 路径 B：从源码编译（约 8 分钟）
+
+前置：安装 DevEco Studio 6.1.1.280+（含 HarmonyOS SDK API 22）。
 
 ```bash
 git clone https://github.com/s1316339343/DongChi_V2.event_czb.git
 cd DongChi_V2.event_czb
 ```
 
-> 若所在网络无法访问 GitHub 的 443 端口（HTTPS 超时），可改用 SSH 通道：
-> `git clone git@github.com:s1316339343/DongChi_V2.event_czb.git`。
-> 也可在 `~/.ssh/config` 中配置 GitHub 官方备用入口，无需代理：
->
-> ```text
-> Host github.com
->     HostName ssh.github.com
->     Port 443
->     User git
-> ```
-### 4.2 配置云端 AI（可选）
+**① 设置环境变量**（模板见 [env.example.ps1](env.example.ps1) / [env.example.bat](env.example.bat)，只填路径、不含密钥）
 
-不配置时 App **全功能可用**，仅推荐理由退化为通用文案。
+```powershell
+Copy-Item env.example.ps1 env.local.ps1   # 把里面的 DevEcoRoot 改成自己的安装位置
+. .\env.local.ps1                          # 打印三个路径并自检是否存在
+```
+
+**② 编译**
+
+```powershell
+& $env:HVIGOR_BAT assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
+```
+
+产物：`entry/build/default/outputs/default/entry-default-unsigned.hap`
+（仓库不含签名口令，因此只产出 unsigned 包，属预期行为；要签名包见 4.5）
+
+**③ 运行**：DevEco Studio 打开项目 → 等同步完成 → 连设备或启动模拟器 → 点 Run。
+
+**④ 本机实测基线**：编译 19–28 秒，输出 `BUILD SUCCESSFUL`；
+仅剩 `router / animateTo 已废弃` 一类告警，无 error。
+
+### 4.3 路径 C：跑测试（约 5 分钟）
+
+12 个用例，只覆盖 AI 校验闸门，**不依赖网络**。需真机或模拟器：
+
+```powershell
+& $env:HVIGOR_BAT assembleHap --mode module -p module=entry@ohosTest -p product=default
+# 然后用 DevEco Studio 的 Test 运行器执行
+```
+
+覆盖：防幻觉（候选外菜名丢弃）、忌口拦截、数量截断、分数夹取、理由截断与兜底、
+非 JSON 判定、重复菜名去重、markdown 围栏提取、嵌套 JSON、字符串内花括号。
+
+### 4.4 配置云端 AI（可选）
+
+不配置时 App **全功能可用**，仅推荐理由退化为模板文案。
 
 ```bash
 # 方式一：配置文件（推荐，密钥不入库）
@@ -158,10 +210,11 @@ cp entry/src/main/resources/rawfile/ai-config.local.json.example \
 **获取 API Key**：登录 [阿里云百炼控制台](https://bailian.console.aliyun.com/settings/api-key) 创建。
 新用户每个模型约有 100 万 Token 免费额度，有效期 90 天。默认模型 `qwen-flash` 在免费额度覆盖范围内。
 
-> **安全说明**：`ai-config.local.json` 已加入 `.gitignore`，不会进入版本库。
-> 源码中不含任何明文密钥。生产环境建议改为服务端代理，仅需替换 `baseUrl` 配置项。
+> **安全说明**：`ai-config.local.json` 已加入 `.gitignore`，不会进入版本库；
+> 源码与提交历史中均不含明文密钥（可用 `git log -S "sk-" --oneline` 自查）。
+> 生产环境建议改为服务端代理：把 `baseUrl` 指向自建接口即可，检索/重排/校验逻辑无需改动。
 
-### 4.3 构建签名包
+### 4.5 构建签名包（需要直装时才做）
 
 仓库中的 `build-profile.json5` **不含任何签名口令**（`signingConfigs` 为空），
 因此克隆后可直接编译出**未签名**包；要产出自用的**已签名**包，二选一：
@@ -190,37 +243,14 @@ IDE 会在本地补全 `signingConfigs`（此改动仅存在于你的工作区�
 > **安全说明**：签名口令只存在于 `signing/signing-config.local.json`（已 gitignore）。
 > 证书文件（`.p12` / `.p7b` / `.cer`）同样不入库。
 
-### 4.4 编译（未签名）
+### 4.6 常见问题（复现时最容易卡住的四处）
 
-```bash
-# Windows
-set DEVECO_SDK_HOME=<DevEco Studio>/sdk
-set JAVA_HOME=<DevEco Studio>/jbr
-set PATH=%JAVA_HOME%\bin;%PATH%      # 打包步骤依赖 java 在 PATH 中
-
-hvigorw assembleHap --mode module -p product=default -p buildMode=debug
-```
-
-产物：`entry/build/default/outputs/default/entry-default-unsigned.hap`
-（未配置签名时 hvigor 不会产出 signed 包，属预期行为）
-
-### 4.5 运行
-
-1. DevEco Studio 打开项目，等待同步完成
-2. 连接 HarmonyOS 真机或启动模拟器
-3. 点击 Run，或安装上面的 HAP
-
-### 4.6 测试
-
-```bash
-# 测试用例位于 entry/src/ohosTest/ets/test/AiPipelineTest.ets（12 个用例）
-# 需真机或模拟器执行
-hvigorw assembleHap --mode module -p module=entry@ohosTest -p product=default
-# 通过 DevEco Studio 的 Test 运行器执行
-```
-
-测试覆盖 AI 校验闸门：防幻觉、忌口拦截、数量截断、分数夹取、理由截断与兜底、
-非 JSON 判定、重复菜名去重、markdown 围栏提取、嵌套 JSON 与字符串花括号。
+| 现象 | 原因与处理 |
+|---|---|
+| `spawn java ENOENT` | 打包步骤要求 `java` 在 PATH 中：先 `. .\env.local.ps1`（或 `env.local.bat`） |
+| `SDK not found` / 报 SDK 版本不符 | `DEVECO_SDK_HOME` 要指向 `...\DevEco Studio\sdk`，且 SDK 需含 API 22 |
+| 编译成功但没有 signed 包 | **属预期**：仓库不含签名口令，见 4.5 |
+| App 里 AI 总是走本地推荐 | ① 未配 Key；② 设置页里的 Key 是旧的（**Preferences 优先于 rawfile**）；③ 免费额度用尽（HTTP 403）。换 Key 请在「我的 → AI 能力设置」里粘贴保存 |
 
 ---
 
@@ -302,10 +332,12 @@ entry/src/ohosTest/ets/test/
 
 | 文档 | 内容 |
 |---|---|
-| [技术文档.pdf](技术文档.pdf) | **提交用正式版**（12 页，含封面/目录/图表/实测数据） |
+| [技术文档.pdf](技术文档.pdf) | **提交用正式版**（含封面/目录/图表/实测数据） |
 | [技术文档.docx](技术文档.docx) | 上述 PDF 的可编辑源文件 |
-| [技术文档.md](技术文档.md) | 架构设计、AI 原理、测试方案、已知局限（Markdown 版） |
-| [AI-PROMPTS.md](AI-PROMPTS.md) | AI 对话历史 Prompt 快照与返工记录 |
+| [技术文档.md](技术文档.md) | 架构设计、AI 原理、意图控制策略、测试方案、已知局限 |
+| [AI-PROMPTS/](AI-PROMPTS/README.md) | **AI 对话原始记录**：4 条完整 Prompt 链（逐轮原文 + 落盘文件 + 工具动作） |
+| [AI-PROMPTS.md](AI-PROMPTS.md) | 上述记录的导读：工具分工、关键对话清单、返工记录 |
+| [RECONSTRUCTION.md](RECONSTRUCTION.md) | 提交历史重建说明（为什么重建、改了什么、如何核对与回滚） |
 | [应用介绍.md](应用介绍.md) | 面向用户的功能与场景介绍 |
 
 ---

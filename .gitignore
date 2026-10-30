@@ -37,3 +37,6 @@ ai-config.local.json
 .atomcode/
 __pycache__/
 *.pyc
+
+# 本地环境变量文件（由 env.example.* 复制而来，含本机路径）
+env.local.*
