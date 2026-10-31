@@ -203,7 +203,7 @@ export class RecommendService {
 
     // ===== 第二段：云端语义重排 + 个性化理由（只在合规候选内排序） =====
     try {
-      const candidates = RecommendService.toCandidateList(retrieved, conditions);
+      const candidates = RecommendService.toCandidateList(retrieved, conditions, priority);
       const summary = RecommendService.buildProfileSummary(profile);
 
       if (onStage !== null) {
@@ -373,12 +373,20 @@ export class RecommendService {
   /** 把打分结果转成送给云端重排的精简候选结构 */
   private static toCandidateList(
     scored: ScoredDish[],
-    conditions: RecommendConditions
+    conditions: RecommendConditions,
+    priority: string = 'balanced'
   ): CandidateDish[] {
     const limit = Math.min(scored.length, RecommendService.MAX_RERANK_CANDIDATES);
     const list: CandidateDish[] = [];
+    // "换一批"的偏移量必须对云端路径同样生效。
+    // 本地降级路径用 offset 轮换，云端路径原本直接取前 12 名 —— 结果就是配好 Key 之后
+    // 点"换一批"，送给模型的候选和提示词一字不差，模型大概率返回同样三道菜，
+    // 用户会认为按钮坏了。这里让候选窗口按偏移量滑动（超出尾部则绕回补齐）。
+    const offset: number = scored.length > limit
+      ? RecommendService.offsetFor(priority) % scored.length
+      : 0;
     for (let i = 0; i < limit; i++) {
-      const item = scored[i];
+      const item = scored[(offset + i) % scored.length];
       const dish = item.dish;
       let owned = 0;
       if (!conditions.hasNoIngredients) {

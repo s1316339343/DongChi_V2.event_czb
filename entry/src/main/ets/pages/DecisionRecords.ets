@@ -145,7 +145,7 @@ struct DecisionRecords {
   confirmDeleteAll(): void {
     promptAction.showDialog({
       title: '删除全部记录',
-      message: '确定要删除所有决策记录吗？此操作不可恢复。',
+      message: '确定要删除所有决策记录吗？\n\n注意：从推荐页收藏的菜品会一并删除，此操作不可恢复。',
       buttons: [
         {
           text: '取消',

@@ -661,14 +661,13 @@ export class CloudAiService {
 
       used.add(name);
       result.push({ name: name, score: score, reason: reason } as RerankItem);
-      if (result.length >= RESULT_COUNT) {
-        break;
-      }
     }
 
-    // 按模型给出的适合度降序，保证展示顺序与理由一致
+    // 先对"全部有效项"按适合度降序，再截断到 RESULT_COUNT。
+    // 反过来（先截前 3 再排序）在模型升序或乱序输出时，留下的会是"排在最前面的 3 道"，
+    // 而不是分数最高的 3 道——与"挑最适合这位用户的"语义相反。
     result.sort((a, b) => b.score - a.score);
-    return result;
+    return result.slice(0, RESULT_COUNT);
   }
 
   /** 菜名级忌口兜底校验（与本地关键词规则保持一致） */
@@ -812,7 +811,14 @@ export class CloudAiService {
             return;
           }
           const payload = trimmed.substring(5).trim();
-          if (payload.length === 0 || payload === '[DONE]') {
+          if (payload.length === 0) {
+            return;
+          }
+          if (payload === '[DONE]') {
+            // 网关发完 [DONE] 不一定会立刻断开连接。不在这里结算的话，
+            // Promise 会一直挂到 readTimeout（60s），UI 就卡在"AI 正在生成"。
+            ended = true;
+            maybeSettle();
             return;
           }
           try {
@@ -849,6 +855,9 @@ export class CloudAiService {
           // 拿到响应即开始收数据，头部无需额外处理
         });
         httpRequest.on('dataReceive', (chunk: ArrayBuffer) => {
+          if (settled) {
+            return;   // 已结算（成功或降级）后不再向 UI 推送增量
+          }
           try {
             const bytes: Uint8Array = new Uint8Array(chunk);
             feed(decoder.decodeToString(bytes, decodeOptions));

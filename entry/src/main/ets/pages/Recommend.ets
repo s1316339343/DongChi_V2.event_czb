@@ -3,6 +3,7 @@ import router from '@ohos.router';
 // import bundleManager from '@ohos.bundle.bundleManager';  // [单机化] 移除第三方应用检测
 import { promptAction } from '@kit.ArkUI';
 import { RecommendService, RecommendStage } from '../service/RecommendService';
+import { CloudAiService } from '../service/CloudAiService';
 import { AiDish } from '../service/DishTypes';
 import { DbService, DecisionRecord, FavoriteDish } from '../service/DbService';
 import { LOCAL_DISHES } from '../service/LocalDishes';
@@ -272,6 +273,10 @@ struct Recommend {
     this.stageDetail = '正在本地筛选符合忌口与预算的候选…';
     this.aiStreamText = '';
     this.aiStreamChars = 0;
+    // 复位"内置兜底"标记：它只应在"本轮真的走了硬编码兜底"时为 true。
+    // 不复位的话，本页一旦出现过一次兜底，之后每次成功推荐都会在 saveCurrentDecision
+    // 首行被跳过，真实决策永远不落库。
+    this.isHardcodedFallback = false;
     if (priority) {
       this.priorityActive = priority;
     }
@@ -302,8 +307,10 @@ struct Recommend {
 
       this.isLocalRecommend = result.isLocal;
 
-      // 进入本地推荐模式时弹窗告知用户具体原因
-      if (this.isLocalRecommend) {
+      // 进入本地推荐模式时弹窗告知用户具体原因。
+      // 每个会话只弹一次：未配置 Key 是默认状态，若每次进页面、每次"换一批"都弹模态框，
+      // 推荐结果会被反复挡在后面（页内已有"本地推荐模式"提示条）。
+      if (this.isLocalRecommend && CloudAiService.shouldNotifyDegrade()) {
         this.showLocalFallbackDialog(result.failReason || 'AI 推荐服务暂不可用');
       }
 
