@@ -284,7 +284,9 @@ entry/src/main/ets/
 └── resources/              资源（含 rawfile 密钥配置模板）
 
 entry/src/ohosTest/ets/test/
-└── AiPipelineTest.ets      AI 链路单元测试（12 个用例）
+├── Ability.test.ets        模板自带的能力测试
+├── AiPipelineTest.test.ets AI 链路单元测试（12 个用例）
+└── List.test.ets           测试聚合入口
 ```
 
 ---

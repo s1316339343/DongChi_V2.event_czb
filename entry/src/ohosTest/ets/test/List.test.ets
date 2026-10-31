@@ -1,5 +1,5 @@
 import abilityTest from './Ability.test';
-import aiPipelineTest from './AiPipelineTest';
+import aiPipelineTest from './AiPipelineTest.test';
 
 export default function testsuite() {
   abilityTest();
