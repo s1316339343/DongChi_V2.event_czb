@@ -7,9 +7,10 @@
 
 > **评委快速入口**
 > ① 只想看效果 → [4.1 直接装包体验（1 分钟）](#41-路径-a直接装包体验1-分钟)
-> ② 想看过程真实性和演进链路 → [RECONSTRUCTION.md](RECONSTRUCTION.md)
-> ③ 想看与 AI 的完整对话（逐轮原文） → [AI-PROMPTS/](AI-PROMPTS/README.md)
-> ④ 想看设计与取舍 → [技术文档.pdf](技术文档.pdf)
+> ② 想看界面 → [界面一览](#界面一览)
+> ③ 想看过程真实性和演进链路 → [RECONSTRUCTION.md](RECONSTRUCTION.md)
+> ④ 想看与 AI 的完整对话（逐轮原文） → [AI-PROMPTS/](AI-PROMPTS/README.md)
+> ⑤ 想看设计与取舍 → [技术文档.pdf](技术文档.pdf)
 
 ---
 
@@ -115,6 +116,24 @@
 | 收藏 / 决策记录 | 收藏反馈进推荐；记录可复现当时的决策 |
 | 饮食仪表盘 | 口味分布、预算分布、时间偏好、消费趋势 |
 | 语音播报 | TTS 播报推荐结果 |
+
+### 界面一览
+
+<table>
+  <tr>
+    <td width="33%" align="center"><img src="docs/screenshots/01-home.png" width="230"><br><sub><b>① 首页</b>　一句话定位 + 三个入口</sub></td>
+    <td width="33%" align="center"><img src="docs/screenshots/02-step3-ingredients.png" width="230"><br><sub><b>② 第三问 · 冰箱食材</b>　七大分类，支持搜索与自定义</sub></td>
+    <td width="33%" align="center"><img src="docs/screenshots/03-ai-pipeline.png" width="230"><br><sub><b>③ AI 决策过程</b>　三阶段进度 + 模型实时逐字输出</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/04-recommend.png" width="230"><br><sub><b>④ 推荐结果</b>　自己做 vs 外卖、缺哪几样食材</sub></td>
+    <td align="center"><img src="docs/screenshots/05-shopping-list.png" width="230"><br><sub><b>⑤ 购物清单</b>　多菜合并去重、自动过滤家中已有</sub></td>
+    <td align="center"><sub>截图取自演示视频<br>（HarmonyOS 真机 / API 22）</sub></td>
+  </tr>
+</table>
+
+> 第 ③ 张是评审标准里点名的"AI 响应状态提示"：左边三阶段（✅ 本地检索 → ⏳ 云端重排 → ○ 结构校验），
+> 右边是模型正在逐字生成的原始输出。降级时只把出问题的那一步标成 ⚠️，不会假装全部成功。
 
 ---
 
